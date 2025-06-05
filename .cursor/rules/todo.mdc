@@ -1,0 +1,327 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# TODO - Marketplace Prewedding
+
+## ✅ COMPLETED FEATURES (Progress Update)
+
+### 🔐 Authentication System ✅
+- [x] **Basic Authentication Setup**
+  - [x] Supabase Auth configuration
+  - [x] Email/password registration dan login
+  - [x] User profile creation dengan database trigger
+  - [x] Authentication state management dengan useAuth hook
+  - [x] Protected routes dan redirections
+
+- [x] **User Registration Flow** 
+  - [x] Registration form dengan validasi lengkap
+  - [x] Multi-step form validation (email, password, phone, nama)
+  - [x] Phone number formatting dan validasi
+  - [x] User type selection (client/vendor)
+  - [x] **✅ BARU: Alert Messages yang Proper**
+    - [x] Email confirmation alert (📧 biru) untuk user yang perlu konfirmasi email
+    - [x] Success alert (✅ hijau) untuk registrasi berhasil dengan redirect
+    - [x] Warning alert (⚠️ kuning) untuk masalah teknis tapi akun sudah terbuat
+    - [x] Error alert (🔴 merah) untuk error registrasi
+
+- [x] **Database Schema Foundation**
+  - [x] user_profiles table dengan semua field yang diperlukan
+  - [x] vendors table dengan relasi ke user_profiles
+  - [x] vendor_categories table dengan data master kategori
+  - [x] Database triggers untuk auto-create profile
+  - [x] Foreign key constraints dan relationships
+
+- [x] **User Experience Improvements**
+  - [x] Onboarding page setelah registrasi
+  - [x] Dashboard dengan profile information
+  - [x] Role-based routing (client/vendor)
+  - [x] Loading states dan error handling
+  - [x] Responsive design dengan TailwindCSS
+
+### 🗄️ Database Progress ✅
+- [x] **Core Tables Created:**
+  - [x] user_profiles (complete with all necessary fields)
+  - [x] vendors (business info, categories, verification status)
+  - [x] vendor_categories (master data dengan berbagai kategori wedding)
+
+- [x] **Database Triggers & Functions:**
+  - [x] handle_new_user() trigger untuk auto-create profile
+  - [x] Proper error handling dalam triggers
+  - [x] Auto-population vendor records untuk vendor users
+
+### 🎨 UI Components Progress ✅  
+- [x] **Authentication Components:**
+  - [x] LoginForm component dengan validasi
+  - [x] RegisterForm component dengan multi-step validation
+  - [x] AuthCallback page untuk email confirmation handling
+  - [x] Onboarding page untuk welcome flow
+  - [x] Dashboard page dengan profile display
+
+- [x] **Layout & Design:**
+  - [x] Responsive design dengan TailwindCSS
+  - [x] Modern UI dengan proper spacing dan typography
+  - [x] Color-coded alert system dengan emoji indicators
+  - [x] Form validation dengan real-time feedback
+  - [x] Loading states dan disabled states
+
+### 🔧 Technical Foundation ✅
+- [x] **NextJS Setup:**
+  - [x] NextJS 14 dengan App Router
+  - [x] TypeScript configuration
+  - [x] TailwindCSS integration
+  - [x] Proper file structure dan organization
+
+- [x] **Supabase Integration:**
+  - [x] Supabase client configuration
+  - [x] Database types generation
+  - [x] Auth integration dengan proper error handling
+  - [x] Real-time capabilities setup (siap untuk chat system)
+
+---
+
+## 🎯 Core Features (Priority 1)
+
+### 📋 Vendor Management
+- [ ] **Tampilkan Daftar Vendor**
+  - [ ] Grid/list view vendor dengan foto profil
+  - [ ] Filter berdasarkan kategori (fotografer, MUA, venue, dll)
+  - [ ] Filter berdasarkan lokasi/area
+  - [ ] Filter berdasarkan rating dan harga
+  - [ ] Search vendor berdasarkan nama
+  - [ ] Pagination untuk performa
+
+- [ ] **Detail Vendor**
+  - [ ] Halaman profil vendor lengkap
+  - [ ] Informasi contact dan lokasi
+  - [ ] Rating dan review dari client
+  - [ ] Gallery foto hasil karya
+  - [ ] Daftar paket layanan yang ditawarkan
+  - [ ] Status ketersediaan (online/offline)
+
+### 🛍️ Service Management
+- [ ] **Detail Layanan Vendor**
+  - [ ] Tampilkan semua paket layanan per vendor
+  - [ ] Detail spesifikasi setiap paket
+  - [ ] Harga dan durasi layanan
+  - [ ] Include/exclude items dalam paket
+  - [ ] Terms and conditions
+  - [ ] Galeri foto untuk setiap paket
+
+### 🖼️ Portfolio System
+- [ ] **Melihat Portfolio**
+  - [ ] Gallery foto portfolio vendor
+  - [ ] Kategorisasi portfolio (outdoor, indoor, casual, formal)
+  - [ ] Lightbox/modal untuk view detail foto
+  - [ ] Image lazy loading untuk performa
+  - [ ] Filter portfolio berdasarkan style/tema
+
+### 💬 Chat System
+- [ ] **Chat dengan Vendor**
+  - [ ] Real-time chat interface
+  - [ ] Chat room per vendor-client
+  - [ ] Send text messages
+  - [ ] Send images/attachments
+  - [ ] Message status (sent, delivered, read)
+  - [ ] Chat history persistence
+  - [ ] Online/offline status indicator
+
+### 📅 Availability System
+- [ ] **Update Ketersediaan Real-time**
+  - [ ] Calendar view ketersediaan vendor
+  - [ ] Real-time update status booking
+  - [ ] Block/unblock tanggal tertentu
+  - [ ] Notifikasi perubahan ketersediaan
+  - [ ] Integration dengan sistem booking
+
+## 🗄️ Database Schema (Supabase)
+
+### 🔐 Authentication & User Management:
+- [ ] **Supabase Auth** (built-in: auth.users table)
+  - [ ] Email/password authentication
+  - [ ] Social login (Google, Facebook, etc)
+  - [ ] Email verification
+  - [ ] Password reset functionality
+
+- [ ] **Role-Based System** (Flexible Account System)
+  - [ ] Single account can be Client, Vendor, or Both
+  - [ ] Role switching functionality in UI
+  - [ ] Different dashboard based on active role
+  - [ ] Onboarding flow per role
+
+- [ ] **user_profiles** (extends auth.users)
+  - [ ] id (references auth.users.id)
+  - [ ] full_name, phone, avatar_url
+  - [ ] location, bio, date_of_birth
+  - [ ] is_vendor (boolean - apakah user juga vendor)
+  - [ ] is_client (boolean - apakah user juga client)
+  - [ ] preferred_role (client/vendor - default role saat login)
+  - [ ] onboarding_completed, profile_completed
+  - [ ] created_at, updated_at
+
+### 📊 Core Business Tables:
+- [ ] **vendors** (id, user_id, business_name, description, location, rating, etc)
+  - [ ] category (photographer, mua, venue, decoration, etc)
+  - [ ] price_range (min_price, max_price)
+  - [ ] service_areas (array of locations)
+  - [ ] contact_info (whatsapp, instagram, website)
+  - [ ] verification_status, featured_status
+  - [ ] average_rating, total_reviews
+
+- [ ] **services** (id, vendor_id, name, price, duration, description)
+  - [ ] service_type (package/individual)
+  - [ ] includes (array of included items)
+  - [ ] excludes (array of excluded items)
+  - [ ] terms_conditions, cancellation_policy
+  - [ ] max_revisions, delivery_time
+
+- [ ] **portfolios** (id, vendor_id, service_id, image_url, category)
+  - [ ] title, description
+  - [ ] image_order (for sorting)
+  - [ ] tags (array for filtering)
+  - [ ] featured (boolean)
+
+- [ ] **availability** (id, vendor_id, date, status, created_at)
+  - [ ] time_slots (if needed for hourly booking)
+  - [ ] booking_type (full_day/half_day/hourly)
+  - [ ] notes (internal vendor notes)
+
+### 💬 Communication System:
+- [ ] **chat_rooms** (id, vendor_id, client_id, created_at)
+  - [ ] last_message_at, last_message_preview
+  - [ ] unread_count_vendor, unread_count_client
+  - [ ] status (active/archived)
+
+- [ ] **messages** (id, room_id, sender_id, content, message_type, created_at)
+  - [ ] message_type (text/image/file)
+  - [ ] file_url (for attachments)
+  - [ ] read_at, delivered_at
+  - [ ] reply_to_message_id (for message replies)
+
+### ⭐ Review & Rating System:
+- [ ] **reviews** (id, vendor_id, client_id, rating, comment)
+  - [ ] service_id (which service was reviewed)
+  - [ ] review_photos (array of image urls)
+  - [ ] helpful_count (like system)
+  - [ ] vendor_reply, vendor_reply_at
+  - [ ] created_at, updated_at
+
+### 📝 Additional Tables:
+- [ ] **inquiries** (id, vendor_id, client_id, service_id, event_date)
+  - [ ] message, budget_range, location
+  - [ ] status (pending/responded/closed)
+  - [ ] created_at, updated_at
+
+- [ ] **favorites** (id, user_id, vendor_id, created_at)
+  - [ ] For user wishlist functionality
+
+- [ ] **vendor_categories** (id, name, description, icon)
+  - [ ] Master data untuk kategori vendor
+
+## 🎨 UI/UX Components
+
+### Vue Components:
+
+#### 🔐 Auth & Profile Components:
+- [ ] **AuthModal** - Login/register modal
+- [ ] **ProfileSetup** - Complete profile after registration
+- [ ] **RoleSwitcher** - Switch between client/vendor mode
+- [ ] **VendorOnboarding** - Setup vendor profile & business info
+
+#### 🛍️ Marketplace Components:
+- [ ] **VendorCard** - Card component untuk daftar vendor
+- [ ] **VendorDetail** - Halaman detail vendor
+- [ ] **ServiceCard** - Card untuk tampilan layanan
+- [ ] **PortfolioGallery** - Gallery component dengan lightbox
+- [ ] **ChatInterface** - Real-time chat component
+- [ ] **AvailabilityCalendar** - Calendar untuk ketersediaan
+- [ ] **FilterSidebar** - Sidebar untuk filter vendor
+- [ ] **SearchBar** - Component pencarian vendor
+
+#### 📊 Dashboard Components:
+- [ ] **ClientDashboard** - Dashboard untuk client (bookings, chats)
+- [ ] **VendorDashboard** - Dashboard untuk vendor (orders, analytics)
+- [ ] **UserProfile** - Edit profile component
+
+## 🔧 Technical Implementation
+
+### Frontend (Vue.js):
+- [ ] Setup Vue 3 dengan Composition API
+- [ ] Install & configure TailwindCSS
+- [ ] Setup Vue Router untuk routing
+- [ ] Install Supabase client library
+- [ ] Setup state management (Pinia/Vuex)
+- [ ] Configure real-time subscriptions
+
+### Supabase Setup:
+- [ ] Create Supabase project
+- [ ] **Setup Authentication:**
+  - [ ] Enable email/password auth
+  - [ ] Configure social providers (Google, Facebook)
+  - [ ] Setup email templates (welcome, reset password)
+  - [ ] Configure auth settings (session timeout, etc)
+- [ ] **Setup Database:**
+  - [ ] Create user_profiles table with FK to auth.users
+  - [ ] Create all business tables with relationships
+  - [ ] Setup foreign key constraints
+  - [ ] Create indexes for performance
+- [ ] **Configure Row Level Security (RLS):**
+  - [ ] Enable RLS on all tables
+  - [ ] Create policies for user_profiles (users can only see/edit own profile)
+  - [ ] Create policies for vendors (public read, owner write)
+  - [ ] Create policies for chat (only participants can access)
+  - [ ] Create policies for reviews (public read, reviewer write)
+- [ ] **Setup Storage:**
+  - [ ] Create bucket untuk vendor photos
+  - [ ] Create bucket untuk portfolio images
+  - [ ] Create bucket untuk chat attachments
+  - [ ] Configure storage policies
+- [ ] **Configure Real-time:**
+  - [ ] Enable real-time on messages table
+  - [ ] Enable real-time on availability table
+  - [ ] Setup subscriptions untuk chat
+  - [ ] Setup subscriptions untuk availability updates
+
+### Real-time Features:
+- [ ] Real-time chat menggunakan Supabase subscriptions
+- [ ] Real-time availability updates
+- [ ] Live vendor status updates
+
+## 📱 Responsive Design
+- [ ] Mobile-first approach
+- [ ] Tablet responsiveness
+- [ ] Desktop optimization
+- [ ] Touch-friendly chat interface
+- [ ] Optimized image loading
+
+## 🚀 Performance Optimization
+- [ ] Image lazy loading
+- [ ] Component lazy loading
+- [ ] Database query optimization
+- [ ] Caching strategy
+- [ ] Bundle size optimization
+
+## 🧪 Testing
+- [ ] Unit tests untuk components
+- [ ] Integration tests untuk chat system
+- [ ] E2E tests untuk user flow
+- [ ] Performance testing
+- [ ] Mobile device testing
+
+---
+
+## 📝 Notes
+- Semua fitur ini diluar sistem login/register
+- Fokus pada user experience untuk browsing vendor
+- Real-time features menjadi key differentiator
+- Mobile responsiveness sangat penting untuk target market
+
+
+
+
+
+
+
+
+
