@@ -33,6 +33,15 @@ export default function OnboardingPage() {
 
         if (!profileError && profileData) {
           setProfile(profileData)
+          
+          // Jika onboarding sudah selesai, redirect ke home
+          if (profileData.onboarding_completed) {
+            router.push('/')
+            return
+          }
+        } else {
+          // Jika tidak ada profile, buat profile baru
+          console.log('No profile found, akan redirect ke registration untuk melengkapi profile')
         }
 
         setLoading(false)
@@ -54,7 +63,8 @@ export default function OnboardingPage() {
         .eq('id', user.id)
 
       if (!error) {
-        router.push('/dashboard')
+        // Redirect ke home page setelah onboarding selesai
+        router.push('/')
       }
     } catch (error) {
       console.error('Error completing onboarding:', error)
@@ -107,12 +117,21 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        <button
-          onClick={handleCompleteOnboarding}
-          className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
-        >
-          Selesaikan Onboarding & Lanjut ke Dashboard
-        </button>
+        <div className="space-y-3">
+          <button
+            onClick={handleCompleteOnboarding}
+            className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+          >
+            Selesaikan Onboarding & Lanjut ke Beranda
+          </button>
+
+          <button
+            onClick={() => router.push('/')}
+            className="w-full bg-green-600 text-white py-3 px-4 rounded-md hover:bg-green-700 transition-colors font-medium"
+          >
+            Langsung ke Beranda
+          </button>
+        </div>
 
         <div className="mt-4 text-center">
           <button
