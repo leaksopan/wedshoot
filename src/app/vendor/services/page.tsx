@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
 import { Tables } from '@/types/database'
@@ -265,10 +266,19 @@ function LoadingFallback() {
   )
 }
 
+// Dynamic import untuk menghindari SSR dengan useSearchParams
+const DynamicVendorServicesContent = dynamic(
+  () => Promise.resolve(VendorServicesContent),
+  {
+    ssr: false,
+    loading: () => <LoadingFallback />
+  }
+)
+
 export default function VendorServicesPage() {
   return (
     <Suspense fallback={<LoadingFallback />}>
-      <VendorServicesContent />
+      <DynamicVendorServicesContent />
     </Suspense>
   )
 } 
