@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
@@ -10,7 +10,7 @@ import Link from 'next/link'
 type VendorInfo = Tables<'vendors'>
 type Service = Tables<'services'>
 
-export default function VendorServicesPage() {
+function VendorServicesContent() {
   const searchParams = useSearchParams()
   const vendorId = searchParams.get('vendorId')
   
@@ -249,5 +249,26 @@ export default function VendorServicesPage() {
         </div>
       </div>
     </AppLayout>
+  )
+}
+
+function LoadingFallback() {
+  return (
+    <AppLayout>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Memuat halaman...</p>
+        </div>
+      </div>
+    </AppLayout>
+  )
+}
+
+export default function VendorServicesPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <VendorServicesContent />
+    </Suspense>
   )
 } 
