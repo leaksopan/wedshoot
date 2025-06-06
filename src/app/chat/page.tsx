@@ -29,7 +29,7 @@ export default function ChatListPage() {
     }
 
     loadChatRooms()
-  }, [authLoading, isAuthenticated, loadChatRooms, router])
+  }, [authLoading, isAuthenticated, router]) // Hapus loadChatRooms dari dependencies
 
   // Debug function (hanya di development)
   const showDebugInfo = () => {

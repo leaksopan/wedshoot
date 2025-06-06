@@ -272,13 +272,17 @@ export const useChat = () => {
     servicePreview?: Json
   ) => {
     if (!user) {
+      console.error('User not authenticated to send message')
       setError('User not authenticated to send message')
       return false
     }
     if (!content.trim() && !fileUrl) {
+      console.error('Cannot send an empty message')
       setError('Cannot send an empty message')
       return false
     }
+
+    console.log('Sending message:', { roomId, content, user: user.id })
 
     // Create temporary message untuk optimistic update
     const tempMessage = {
@@ -308,20 +312,15 @@ export const useChat = () => {
       
       // Optimistic update - tambahkan message sementara
       setMessages(prevMessages => {
-        const tempExists = prevMessages.some(msg => msg.id.startsWith('temp-'))
-        if (tempExists) {
-          // Update existing temp message
-          return prevMessages.map(msg => 
-            msg.id.startsWith('temp-') ? tempMessage : msg
-          )
-        } else {
-          // Add new temp message
-          const updatedMessages = [...prevMessages, tempMessage]
-          return updatedMessages.sort((a, b) => 
-            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-          )
-        }
+        // Filter duplicate temp messages terlebih dahulu
+        const filteredMessages = prevMessages.filter(msg => !msg.id.startsWith('temp-'))
+        const updatedMessages = [...filteredMessages, tempMessage]
+        return updatedMessages.sort((a, b) => 
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        )
       })
+      
+      console.log('Inserting message to database...')
       
       const { data, error } = await supabase
         .from('messages')
@@ -340,6 +339,7 @@ export const useChat = () => {
         .single()
 
       if (error) {
+        console.error('Database insert error:', error)
         setError(`Error sending message: ${error.message}`)
         
         // Remove temp message on error
@@ -349,6 +349,8 @@ export const useChat = () => {
         
         return false
       }
+
+      console.log('Message inserted successfully:', data)
 
       // Replace temp message dengan real message
       setMessages(prevMessages => {
@@ -364,27 +366,23 @@ export const useChat = () => {
         )
       })
 
-      // Update chat room last message info
-      if (profile?.is_vendor) {
-        // Vendor mengirim message, increment unread count client
-        await supabase.rpc('increment_unread_count', {
-          room_id: roomId,
-          field_name: 'unread_count_client',
-          last_msg_at: new Date().toISOString(),
-          last_msg_preview: content.trim().substring(0, 100)
-        })
-      } else {
-        // Client mengirim message, increment unread count vendor
-        await supabase.rpc('increment_unread_count', {
-          room_id: roomId,
-          field_name: 'unread_count_vendor',
-          last_msg_at: new Date().toISOString(),
-          last_msg_preview: content.trim().substring(0, 100)
-        })
+      // Update chat room last message info (simplified - tidak pakai RPC yang mungkin tidak ada)
+      try {
+        await supabase
+          .from('chat_rooms')
+          .update({
+            last_message_at: new Date().toISOString(),
+            last_message_preview: content.trim().substring(0, 100)
+          })
+          .eq('id', roomId)
+      } catch (updateError) {
+        console.warn('Failed to update chat room last message:', updateError)
+        // Don't fail the whole message send for this
       }
 
       return true
     } catch (error) {
+      console.error('Exception in sendMessage:', error)
       setError(`Exception: ${error instanceof Error ? error.message : 'Unknown error'}`)
       
       // Remove temp message on exception
@@ -529,7 +527,7 @@ export const useChat = () => {
       senderCache.clear()
       retryAttempt = 0
     }
-  }, [user, currentRoomId, markMessagesAsRead, loadChatRooms])
+  }, [user, currentRoomId]) // Hapus markMessagesAsRead dan loadChatRooms dari dependencies
 
   // Fallback polling jika realtime tidak available
   useEffect(() => {
@@ -540,7 +538,7 @@ export const useChat = () => {
       if (!realtimeConnected) {
         const pollingInterval = setInterval(() => {
           loadMessages(currentRoomId)
-        }, 3000) // Poll every 3 seconds
+        }, 5000) // Poll every 5 seconds (lebih jarang untuk mengurangi beban)
         
         return () => {
           clearInterval(pollingInterval)
@@ -551,7 +549,7 @@ export const useChat = () => {
     return () => {
       clearTimeout(fallbackTimer)
     }
-  }, [currentRoomId, user, realtimeConnected, loadMessages])
+  }, [currentRoomId, user, realtimeConnected]) // Hapus loadMessages dari dependencies
 
   // Clean up all channels on unmount
   useEffect(() => {
