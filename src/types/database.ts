@@ -134,57 +134,41 @@ export type Database = {
       }
       chat_rooms: {
         Row: {
-          client_id: string
-          created_at: string | null
           id: string
+          vendor_id: string
+          client_id: string
           last_message_at: string | null
           last_message_preview: string | null
-          status: string | null
-          unread_count_client: number | null
-          unread_count_vendor: number | null
-          updated_at: string | null
-          vendor_id: string
+          unread_count_vendor: number
+          unread_count_client: number
+          status: 'active' | 'archived' | 'blocked'
+          created_at: string
+          updated_at: string
         }
         Insert: {
-          client_id: string
-          created_at?: string | null
           id?: string
+          vendor_id: string
+          client_id: string
           last_message_at?: string | null
           last_message_preview?: string | null
-          status?: string | null
-          unread_count_client?: number | null
-          unread_count_vendor?: number | null
-          updated_at?: string | null
-          vendor_id: string
+          unread_count_vendor?: number
+          unread_count_client?: number
+          status?: 'active' | 'archived' | 'blocked'
+          created_at?: string
+          updated_at?: string
         }
         Update: {
-          client_id?: string
-          created_at?: string | null
           id?: string
+          vendor_id?: string
+          client_id?: string
           last_message_at?: string | null
           last_message_preview?: string | null
-          status?: string | null
-          unread_count_client?: number | null
-          unread_count_vendor?: number | null
-          updated_at?: string | null
-          vendor_id?: string
+          unread_count_vendor?: number
+          unread_count_client?: number
+          status?: 'active' | 'archived' | 'blocked'
+          created_at?: string
+          updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "chat_rooms_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "user_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "chat_rooms_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendors"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       favorites: {
         Row: {
@@ -297,49 +281,52 @@ export type Database = {
       }
       messages: {
         Row: {
+          id: string
+          room_id: string
+          sender_id: string
           content: string
-          created_at: string | null
-          delivered_at: string | null
+          message_type: 'text' | 'image' | 'file' | 'service_preview'
+          file_url: string | null
           file_name: string | null
           file_size: number | null
-          file_url: string | null
-          id: string
-          message_type: string | null
           read_at: string | null
+          delivered_at: string | null
           reply_to_message_id: string | null
-          room_id: string
-          sender_id: string
-          updated_at: string | null
+          service_preview: any | null
+          created_at: string
+          updated_at: string
         }
         Insert: {
-          content: string
-          created_at?: string | null
-          delivered_at?: string | null
-          file_name?: string | null
-          file_size?: number | null
-          file_url?: string | null
           id?: string
-          message_type?: string | null
-          read_at?: string | null
-          reply_to_message_id?: string | null
           room_id: string
           sender_id: string
-          updated_at?: string | null
-        }
-        Update: {
-          content?: string
-          created_at?: string | null
-          delivered_at?: string | null
+          content: string
+          message_type?: 'text' | 'image' | 'file' | 'service_preview'
+          file_url?: string | null
           file_name?: string | null
           file_size?: number | null
-          file_url?: string | null
-          id?: string
-          message_type?: string | null
           read_at?: string | null
+          delivered_at?: string | null
           reply_to_message_id?: string | null
+          service_preview?: any | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
           room_id?: string
           sender_id?: string
-          updated_at?: string | null
+          content?: string
+          message_type?: 'text' | 'image' | 'file' | 'service_preview'
+          file_url?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          read_at?: string | null
+          delivered_at?: string | null
+          reply_to_message_id?: string | null
+          service_preview?: any | null
+          created_at?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -934,3 +921,54 @@ export const Constants = {
     Enums: {},
   },
 } as const 
+
+// Additional types for chat
+export interface ChatRoom {
+  id: string
+  vendor_id: string
+  client_id: string
+  last_message_at: string | null
+  last_message_preview: string | null
+  unread_count_vendor: number
+  unread_count_client: number
+  status: 'active' | 'archived' | 'blocked'
+  created_at: string
+  updated_at: string
+  vendor?: {
+    id: string
+    business_name: string
+    user_id: string
+    user_profiles?: {
+      full_name: string | null
+      avatar_url: string | null
+    }
+  }
+  client?: {
+    id: string
+    full_name: string | null
+    avatar_url: string | null
+  }
+}
+
+export interface Message {
+  id: string
+  room_id: string
+  sender_id: string
+  content: string
+  message_type: 'text' | 'image' | 'file' | 'service_preview'
+  file_url: string | null
+  file_name: string | null
+  file_size: number | null
+  read_at: string | null
+  delivered_at: string | null
+  reply_to_message_id: string | null
+  service_preview: any | null
+  created_at: string
+  updated_at: string
+  sender?: {
+    id: string
+    full_name: string | null
+    avatar_url: string | null
+  }
+  reply_to?: Message | null
+} 

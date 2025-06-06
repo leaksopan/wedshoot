@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AuthState, AuthUser, UserProfile } from '@/types/auth.types'
-import { initializeSession, clearSessionCache, debugSessionState } from '@/utils/sessionUtils'
+import { initializeSession, clearSessionCache, clearSnapmeSessions, debugSessionState } from '@/utils/sessionUtils'
 import { shouldRetryError } from '@/utils/errorBoundary'
 import type { User } from '@supabase/supabase-js'
 
@@ -58,6 +58,9 @@ export const useAuth = () => {
   const initializeAuth = async (retryCount = 0) => {
     try {
       setAuthState(prev => ({ ...prev, loading: true, error: null }))
+
+      // Clear old snapme sessions first
+      clearSnapmeSessions()
 
       // Debug session state di development
       if (process.env.NODE_ENV === 'development') {
@@ -190,8 +193,9 @@ export const useAuth = () => {
     }
   }
 
-  // Clear session cache manually
+  // Clear session cache manually dengan snapme cleanup
   const clearCache = () => {
+    clearSnapmeSessions()
     clearSessionCache()
     // Reinitialize auth after clearing cache
     initializeAuth()

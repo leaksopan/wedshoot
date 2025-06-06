@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
 import BookingCalendar from '@/components/BookingCalendar'
+import ChatModal from '@/components/ChatModal'
 import { useAuth } from '@/hooks/useAuth'
 
 interface ServiceDetail {
@@ -116,6 +117,9 @@ export default function ServiceDetailPage() {
   const [showBookingModal, setShowBookingModal] = useState(false)
   const [selectedDates, setSelectedDates] = useState<Date[]>([])
   const [bookingLoading, setBookingLoading] = useState(false)
+  
+  // Chat states
+  const [showChatModal, setShowChatModal] = useState(false)
 
   useEffect(() => {
     if (serviceId) {
@@ -683,7 +687,10 @@ export default function ServiceDetailPage() {
                   >
                     {selectedDates.length === 0 ? 'Pilih Tanggal Terlebih Dahulu' : 'Pesan Sekarang'}
                   </button>
-                  <button className="w-full border border-red-500 text-red-500 py-3 rounded-lg font-medium hover:bg-red-50 transition-colors flex items-center justify-center">
+                  <button 
+                    onClick={() => setShowChatModal(true)}
+                    className="w-full border border-red-500 text-red-500 py-3 rounded-lg font-medium hover:bg-red-50 transition-colors flex items-center justify-center"
+                  >
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                     </svg>
@@ -827,6 +834,17 @@ export default function ServiceDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Chat Modal */}
+      {service && (
+        <ChatModal
+          isOpen={showChatModal}
+          onClose={() => setShowChatModal(false)}
+          vendorId={service.vendor.id}
+          vendorName={service.vendor.business_name}
+          serviceName={service.name}
+        />
       )}
     </AppLayout>
   )

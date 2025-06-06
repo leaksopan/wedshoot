@@ -11,24 +11,77 @@ export const clearSessionCache = () => {
       const keysToRemove = []
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i)
-        if (key && (key.includes('supabase') || key.includes('auth'))) {
+        if (key && (key.includes('supabase') || key.includes('auth') || key.includes('snapme'))) {
           keysToRemove.push(key)
         }
       }
-      keysToRemove.forEach(key => localStorage.removeItem(key))
+      keysToRemove.forEach(key => {
+        console.log('🧹 Clearing session key:', key)
+        localStorage.removeItem(key)
+      })
 
       // Clear sessionStorage
       const sessionKeysToRemove = []
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)
-        if (key && (key.includes('supabase') || key.includes('auth'))) {
+        if (key && (key.includes('supabase') || key.includes('auth') || key.includes('snapme'))) {
           sessionKeysToRemove.push(key)
         }
       }
-      sessionKeysToRemove.forEach(key => sessionStorage.removeItem(key))
+      sessionKeysToRemove.forEach(key => {
+        console.log('🧹 Clearing session storage key:', key)
+        sessionStorage.removeItem(key)
+      })
     }
   } catch (error) {
     console.warn('Error clearing session cache:', error)
+  }
+}
+
+/**
+ * Fungsi khusus untuk clear session snapme lama
+ */
+export const clearSnapmeSessions = () => {
+  try {
+    if (typeof window !== 'undefined') {
+      const keysToRemove = []
+      
+      // Check localStorage
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.includes('snapme')) {
+          keysToRemove.push(key)
+        }
+      }
+      
+      keysToRemove.forEach(key => {
+        console.log('🧹 Removing old snapme session:', key)
+        localStorage.removeItem(key)
+      })
+      
+      // Check sessionStorage
+      const sessionKeysToRemove = []
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key && key.includes('snapme')) {
+          sessionKeysToRemove.push(key)
+        }
+      }
+      
+      sessionKeysToRemove.forEach(key => {
+        console.log('🧹 Removing old snapme session storage:', key)
+        sessionStorage.removeItem(key)
+      })
+
+      if (keysToRemove.length > 0 || sessionKeysToRemove.length > 0) {
+        console.log('✅ Cleared old snapme sessions, total removed:', keysToRemove.length + sessionKeysToRemove.length)
+        return true
+      }
+    }
+    return false
+  } catch (error) {
+    console.warn('Error clearing snapme sessions:', error)
+    return false
   }
 }
 
@@ -107,41 +160,38 @@ export const getSafeSession = async (retryCount = 0): Promise<any> => {
 }
 
 /**
- * Initialize session dengan error recovery
+ * Initialize session dengan check for old sessions
  */
 export const initializeSession = async () => {
+  // Clear old snapme sessions first
+  const hadOldSessions = clearSnapmeSessions()
+  
+  if (hadOldSessions) {
+    console.log('🔄 Old sessions cleared, reinitializing auth...')
+    // Refresh the page to reinitialize auth properly
+    if (typeof window !== 'undefined') {
+      window.location.reload()
+      return
+    }
+  }
+
   try {
-    // Get session dulu tanpa refresh
-    const currentSession = await getSafeSession()
+    const { data: { session }, error } = await supabase.auth.getSession()
     
-    // Jika tidak ada session sama sekali, return null (user belum login)
-    if (!currentSession) {
-      console.log('No session found - user not logged in')
+    if (error) {
+      console.error('Error initializing session:', error)
       return null
     }
-    
-    // Cek apakah session expired
-    const now = Math.floor(Date.now() / 1000)
-    const isExpired = currentSession.expires_at ? now >= currentSession.expires_at : false
-    
-    if (isExpired) {
-      console.log('Session expired, attempting refresh...')
-      const refreshResult = await refreshSession()
-      
-      if (!refreshResult.success) {
-        console.log('Session refresh failed, clearing cache...')
-        clearSessionCache()
-        return null
-      }
-      
-      // Get session lagi setelah refresh
-      return await getSafeSession()
+
+    if (session) {
+      console.log('✅ WedShoot session initialized:', session.user.email)
+    } else {
+      console.log('ℹ️ No active session found')
     }
-    
-    return currentSession
+
+    return session
   } catch (error) {
-    console.error('Error initializing session:', error)
-    clearSessionCache()
+    console.error('Exception in initializeSession:', error)
     return null
   }
 }
@@ -163,5 +213,79 @@ export const debugSessionState = async () => {
     })
   } catch (error) {
     console.error('Error debugging session:', error)
+  }
+}
+
+/**
+ * Reset aplikasi secara menyeluruh - clear semua data browser
+ */
+export const resetApplication = () => {
+  try {
+    if (typeof window !== 'undefined') {
+      console.log('🔄 Resetting application completely...')
+      
+      // Clear all localStorage
+      const localStorageKeys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key) localStorageKeys.push(key)
+      }
+      localStorageKeys.forEach(key => {
+        console.log('🧹 Removing localStorage key:', key)
+        localStorage.removeItem(key)
+      })
+
+      // Clear all sessionStorage  
+      const sessionStorageKeys = []
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key) sessionStorageKeys.push(key)
+      }
+      sessionStorageKeys.forEach(key => {
+        console.log('🧹 Removing sessionStorage key:', key)
+        sessionStorage.removeItem(key)
+      })
+
+      // Clear cookies (optional - be careful with this)
+      document.cookie.split(";").forEach(function(c) { 
+        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+      })
+
+      console.log('✅ Application reset complete. Reloading page...')
+      
+      // Reload page after clearing everything
+      window.location.reload()
+      
+      return true
+    }
+    return false
+  } catch (error) {
+    console.error('Error resetting application:', error)
+    return false
+  }
+}
+
+/**
+ * Debug helper - print semua storage keys
+ */
+export const debugStorageKeys = () => {
+  if (typeof window === 'undefined') return
+
+  console.log('📋 Current Storage Keys:')
+  
+  console.log('localStorage:')
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key) {
+      console.log(`  - ${key}`)
+    }
+  }
+  
+  console.log('sessionStorage:')
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i)
+    if (key) {
+      console.log(`  - ${key}`)
+    }
   }
 } 
