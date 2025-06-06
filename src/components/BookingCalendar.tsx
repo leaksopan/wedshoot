@@ -270,7 +270,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
         </div>
 
         {/* Legend */}
-        <div className="mt-3 text-xs">
+        <div className="mt-3 pt-3 border-t border-gray-200">
           <div className="grid grid-cols-2 gap-1 text-xs">
             <div className="flex items-center">
               <div className="w-2 h-2 bg-green-500 rounded mr-1"></div>
@@ -312,4 +312,4 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
   )
 }
 
-export default BookingCalendar 
+export default BookingCalendar
