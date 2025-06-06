@@ -53,6 +53,85 @@ export type Database = {
           },
         ]
       }
+      bookings: {
+        Row: {
+          booking_dates: string[]
+          client_email: string | null
+          client_id: string
+          client_name: string | null
+          client_phone: string | null
+          created_at: string | null
+          event_location: string | null
+          guest_count: number | null
+          id: string
+          notes: string | null
+          quantity: number
+          service_id: string
+          status: string | null
+          total_price: number
+          updated_at: string | null
+          vendor_id: string
+        }
+        Insert: {
+          booking_dates: string[]
+          client_email?: string | null
+          client_id: string
+          client_name?: string | null
+          client_phone?: string | null
+          created_at?: string | null
+          event_location?: string | null
+          guest_count?: number | null
+          id?: string
+          notes?: string | null
+          quantity?: number
+          service_id: string
+          status?: string | null
+          total_price: number
+          updated_at?: string | null
+          vendor_id: string
+        }
+        Update: {
+          booking_dates?: string[]
+          client_email?: string | null
+          client_id?: string
+          client_name?: string | null
+          client_phone?: string | null
+          created_at?: string | null
+          event_location?: string | null
+          guest_count?: number | null
+          id?: string
+          notes?: string | null
+          quantity?: number
+          service_id?: string
+          status?: string | null
+          total_price?: number
+          updated_at?: string | null
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookings_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_rooms: {
         Row: {
           client_id: string
@@ -438,6 +517,7 @@ export type Database = {
           duration: number | null
           excludes: Json | null
           id: string
+          images: string[] | null
           includes: Json | null
           is_active: boolean | null
           is_featured: boolean | null
@@ -460,6 +540,7 @@ export type Database = {
           duration?: number | null
           excludes?: Json | null
           id?: string
+          images?: string[] | null
           includes?: Json | null
           is_active?: boolean | null
           is_featured?: boolean | null
@@ -482,6 +563,7 @@ export type Database = {
           duration?: number | null
           excludes?: Json | null
           id?: string
+          images?: string[] | null
           includes?: Json | null
           is_active?: boolean | null
           is_featured?: boolean | null
@@ -687,9 +769,50 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_booking: {
+        Args: {
+          p_service_id: string
+          p_client_id: string
+          p_vendor_id: string
+          p_booking_dates: string[]
+          p_quantity: number
+          p_total_price: number
+          p_client_name?: string
+          p_client_email?: string
+          p_client_phone?: string
+        }
+        Returns: {
+          booking_id: string
+          success: boolean
+          message: string
+        }[]
+      }
       ensure_chat_room_exists: {
         Args: { p_vendor_id: string; p_client_id: string }
         Returns: string
+      }
+      get_booked_dates: {
+        Args: { p_service_id: string }
+        Returns: {
+          booked_date: string
+        }[]
+      }
+      get_featured_services: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          id: string
+          name: string
+          description: string
+          price: number
+          images: string[]
+          service_type: string
+          duration: number
+          business_name: string
+          location: string
+          average_rating: number
+          total_reviews: number
+          category_name: string
+        }[]
       }
     }
     Enums: {

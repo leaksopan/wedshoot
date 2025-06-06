@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
 import { Tables } from '@/types/database'
+import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 
 type VendorInfo = Tables<'vendors'>
@@ -13,7 +14,9 @@ type Service = Tables<'services'>
 
 function VendorServicesContent() {
   const searchParams = useSearchParams()
-  const vendorId = searchParams.get('vendorId')
+  const router = useRouter()
+  const vendorIdParam = searchParams.get('vendorId')
+  const { user, isAuthenticated, profile } = useAuth()
   
   const [vendor, setVendor] = useState<VendorInfo | null>(null)
   const [services, setServices] = useState<Service[]>([])
@@ -21,15 +24,44 @@ function VendorServicesContent() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (vendorId) {
-      loadVendorAndServices()
+    if (vendorIdParam) {
+      loadVendorAndServices(vendorIdParam)
+    } else if (isAuthenticated && user) {
+      // Jika tidak ada vendorId di params, coba ambil dari user yang login
+      loadVendorFromUser()
     } else {
       setError('Vendor ID tidak ditemukan')
       setLoading(false)
     }
-  }, [vendorId])
+  }, [vendorIdParam, isAuthenticated, user])
 
-  const loadVendorAndServices = async () => {
+  const loadVendorFromUser = async () => {
+    if (!user) return
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Load vendor info from current user
+      const { data: vendorData, error: vendorError } = await supabase
+        .from('vendors')
+        .select('*')
+        .eq('user_id', user.id)
+        .single()
+
+      if (vendorError || !vendorData) {
+        throw new Error('Anda belum terdaftar sebagai vendor')
+      }
+
+      loadVendorAndServices(vendorData.id)
+    } catch (error: any) {
+      console.error('Error loading vendor from user:', error)
+      setError(error.message || 'Terjadi kesalahan saat memuat data vendor')
+      setLoading(false)
+    }
+  }
+
+  const loadVendorAndServices = async (vendorId: string) => {
     try {
       setLoading(true)
       setError(null)
@@ -38,7 +70,7 @@ function VendorServicesContent() {
       const { data: vendorData, error: vendorError } = await supabase
         .from('vendors')
         .select('*')
-        .eq('id', vendorId!)
+        .eq('id', vendorId)
         .single()
 
       if (vendorError || !vendorData) {
@@ -51,7 +83,7 @@ function VendorServicesContent() {
       const { data: servicesData, error: servicesError } = await supabase
         .from('services')
         .select('*')
-        .eq('vendor_id', vendorId!)
+        .eq('vendor_id', vendorId)
         .eq('is_active', true)
         .order('created_at', { ascending: false })
 
@@ -79,6 +111,40 @@ function VendorServicesContent() {
   const formatDuration = (duration: number | null) => {
     if (!duration) return 'Tidak ditentukan'
     return `${duration} jam`
+  }
+
+  const handleBookService = (serviceId: string, serviceName: string) => {
+    // Redirect ke halaman detail service
+    router.push(`/services/${serviceId}`)
+  }
+
+  const handleContactVendor = () => {
+    if (!vendor) return
+    
+    // Parse contact_info JSON
+    let contactInfo: any = {}
+    try {
+      if (vendor.contact_info && typeof vendor.contact_info === 'object') {
+        contactInfo = vendor.contact_info
+      }
+    } catch (error) {
+      console.error('Error parsing contact_info:', error)
+    }
+    
+    // Untuk sementara implementasi sederhana
+    if (contactInfo.phone || contactInfo.email || contactInfo.whatsapp) {
+      const contactDetails = []
+      if (contactInfo.whatsapp) contactDetails.push(`WhatsApp: ${contactInfo.whatsapp}`)
+      if (contactInfo.phone) contactDetails.push(`Telepon: ${contactInfo.phone}`)
+      if (contactInfo.email) contactDetails.push(`Email: ${contactInfo.email}`)
+      
+      alert(`Hubungi ${vendor.business_name}:\n\n${contactDetails.join('\n')}`)
+    } else {
+      alert(`Hubungi ${vendor.business_name} untuk informasi lebih lanjut.`)
+    }
+    
+    // TODO: Implement proper contact flow
+    // router.push(`/contact/${vendor.id}`)
   }
 
   if (loading) {
@@ -148,7 +214,10 @@ function VendorServicesContent() {
                 </div>
                 
                 <div className="mt-4 md:mt-0">
-                  <button className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                  <button 
+                    onClick={handleContactVendor}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
                     Hubungi Vendor
                   </button>
                 </div>
@@ -238,7 +307,10 @@ function VendorServicesContent() {
                     )}
 
                     <div className="pt-4 border-t border-gray-100">
-                      <button className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
+                      <button 
+                        onClick={() => handleBookService(service.id, service.name)}
+                        className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                      >
                         Pesan Layanan
                       </button>
                     </div>

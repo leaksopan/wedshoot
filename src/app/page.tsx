@@ -67,7 +67,7 @@ export default function Home() {
 
       setCategories(categoriesData || [])
 
-      // Load vendors (simplified query)
+      // Load vendors (semua vendor ditampilkan)
       const { data: vendorsData } = await supabase
         .from('vendors')
         .select(`
@@ -81,7 +81,6 @@ export default function Home() {
           is_active,
           category_id
         `)
-        .eq('is_active', true)
         .order('average_rating', { ascending: false })
         .limit(8)
 
@@ -119,14 +118,14 @@ export default function Home() {
         setTopVendors(transformedVendors)
       }
 
-      // Load featured services  
+      // Load ALL services (tidak hanya featured)
       const { data: basicServicesData } = await supabase
         .from('services')
         .select('*')
-        .eq('is_active', true)
-        .eq('is_featured', true)
         .order('created_at', { ascending: false })
         .limit(6)
+
+      console.log('🔍 All services found:', basicServicesData?.length || 0)
 
       if (basicServicesData) {
         // Get vendor data for services
@@ -139,7 +138,8 @@ export default function Home() {
             location,
             average_rating,
             total_reviews,
-            category_id
+            category_id,
+            is_active
           `)
           .in('id', vendorIds)
 
@@ -153,12 +153,23 @@ export default function Home() {
         const vendorMap = new Map(vendorsForServices?.map(v => [v.id, v]) || [])
         const categoryMap = new Map(categoriesForServices?.map(c => [c.id, c.name]) || [])
 
-        const transformedServices: Service[] = basicServicesData.map(service => {
+        console.log('📊 Vendor data loaded:', {
+          totalVendors: vendorsForServices?.length || 0,
+          totalServices: basicServicesData.length
+        })
+
+        // Tidak filter services - tampilkan semua
+        const servicesWithActiveVendors = basicServicesData
+
+        console.log('📊 All services will be displayed:', {
+          total: basicServicesData.length,
+          displayed: servicesWithActiveVendors.length
+        })
+
+        const transformedServices: Service[] = servicesWithActiveVendors.map(service => {
           const vendor = vendorMap.get(service.vendor_id)
           const categoryName = vendor ? categoryMap.get(vendor.category_id) : 'General'
           const serviceData = service as any // Type casting untuk akses images
-          
-
           
           return {
             id: service.id,

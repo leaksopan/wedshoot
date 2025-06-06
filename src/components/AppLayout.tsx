@@ -1,6 +1,7 @@
 import { ReactNode } from 'react'
 import { Header } from './Header'
 import { Footer } from './Footer'
+import { DebugAuth } from './DebugAuth'
 
 interface AppLayoutProps {
   children: ReactNode
@@ -20,6 +21,7 @@ export const AppLayout = ({
         {children}
       </main>
       {showFooter && <Footer />}
+      <DebugAuth />
     </div>
   )
 } 

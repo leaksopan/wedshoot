@@ -5,6 +5,8 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
+import BookingCalendar from '@/components/BookingCalendar'
+import { useAuth } from '@/hooks/useAuth'
 
 interface ServiceDetail {
   id: string
@@ -102,12 +104,18 @@ export default function ServiceDetailPage() {
   const router = useRouter()
   const params = useParams()
   const serviceId = params.id as string
+  const { isAuthenticated, user, profile, refreshProfile } = useAuth()
 
   const [service, setService] = useState<ServiceDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [quantity, setQuantity] = useState(1)
+  
+  // Booking states
+  const [showBookingModal, setShowBookingModal] = useState(false)
+  const [selectedDates, setSelectedDates] = useState<Date[]>([])
+  const [bookingLoading, setBookingLoading] = useState(false)
 
   useEffect(() => {
     if (serviceId) {
@@ -135,7 +143,7 @@ export default function ServiceDetailPage() {
 
   const loadServiceDetail = async () => {
     try {
-      // Get service data
+      // Get service data - tidak bergantung pada authentication
       const { data: serviceData, error: serviceError } = await supabase
         .from('services')
         .select('*')
@@ -228,6 +236,100 @@ export default function ServiceDetailPage() {
   const prevImage = () => {
     if (service?.images) {
       setLightboxIndex((lightboxIndex - 1 + service.images.length) % service.images.length)
+    }
+  }
+
+  const handleBookNowClick = () => {
+    if (!isAuthenticated) {
+      alert('Silakan login terlebih dahulu untuk melakukan booking')
+      router.push('/auth/login')
+      return
+    }
+
+    if (profile?.preferred_role === 'vendor') {
+      alert('Vendor tidak dapat melakukan booking layanan')
+      return
+    }
+
+    if (selectedDates.length === 0) {
+      alert('Silakan pilih minimal satu tanggal untuk booking')
+      return
+    }
+
+    // Show confirmation modal and prevent body scroll
+    setShowBookingModal(true)
+    document.body.style.overflow = 'hidden'
+  }
+
+  const handleBookingSubmit = async () => {
+    if (!isAuthenticated || !user || !service) return
+
+    if (selectedDates.length === 0) {
+      alert('Silakan pilih minimal satu tanggal untuk booking')
+      return
+    }
+
+    try {
+      setBookingLoading(true)
+
+      // Convert dates to string array
+      const bookingDatesStr = selectedDates.map(date => date.toISOString().split('T')[0])
+      
+      // Calculate total price
+      const totalPrice = service.price * quantity * selectedDates.length
+
+      // Create actual booking in database
+      console.log('Creating booking with data:', {
+        service_id: serviceId,
+        client_id: user.id,
+        vendor_id: service.vendor.id,
+        booking_dates: bookingDatesStr,
+        quantity: quantity,
+        total_price: totalPrice
+      })
+
+      const { data: bookingData, error } = await supabase
+        .from('bookings')
+        .insert({
+          service_id: serviceId,
+          client_id: user.id,
+          vendor_id: service.vendor.id,
+          booking_dates: bookingDatesStr,
+          quantity: quantity,
+          total_price: totalPrice,
+          status: 'pending',
+          client_name: profile?.full_name || '',
+          client_phone: profile?.phone || '',
+          client_email: user.email || '',
+          notes: null
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Booking error:', error)
+        alert('Terjadi kesalahan saat melakukan booking. Silakan coba lagi.')
+        return
+      }
+
+      alert('Booking berhasil dibuat! Vendor akan menghubungi Anda segera.')
+      setShowBookingModal(false)
+      document.body.style.overflow = 'unset'
+      setSelectedDates([])
+      
+      // Refresh profile to ensure latest data
+      await refreshProfile()
+      
+      // Delay redirect to ensure auth state is stable
+      setTimeout(() => {
+        router.push('/client/bookings')
+      }, 1000)
+
+    } catch (error) {
+      console.error('Booking error:', error)
+      alert('Terjadi kesalahan saat melakukan booking.')
+    } finally {
+      setBookingLoading(false)
     }
   }
 
@@ -374,127 +476,129 @@ export default function ServiceDetailPage() {
             </div>
           )}
 
-          {/* Main Content */}
+          {/* Main Content Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Left Column - Details */}
+            {/* Left Column - Content (2/3) */}
             <div className="lg:col-span-2 space-y-8">
-              {/* Package Description */}
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">Details</h2>
+              {/* Description */}
+              <div className="bg-white rounded-lg p-6 shadow-sm">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Deskripsi</h2>
+                <p className="text-gray-700 leading-relaxed">{service.description}</p>
+              </div>
+
+              {/* What's Included */}
+              {service.includes.length > 0 && (
                 <div className="bg-white rounded-lg p-6 shadow-sm">
-                  <h3 className="font-medium text-gray-900 mb-3">{service.name} :</h3>
-                  <div className="prose max-w-none text-gray-600">
-                    <p className="whitespace-pre-line">{service.description}</p>
-                  </div>
-                  
-                  {/* Includes */}
-                  {service.includes.length > 0 && (
-                    <div className="mt-6">
-                      <h4 className="font-medium text-gray-900 mb-3">Yang Termasuk:</h4>
-                      <ul className="space-y-2">
-                        {service.includes.map((item, index) => (
-                          <li key={index} className="flex items-start">
-                            <span className="text-green-500 mr-2">✓</span>
-                            <span className="text-gray-600">{item}</span>
-                          </li>
-                        ))}
-                      </ul>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Yang Termasuk</h2>
+                  <ul className="space-y-2">
+                    {service.includes.map((item, index) => (
+                      <li key={index} className="flex items-start">
+                        <svg className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-gray-700">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* What's Excluded */}
+              {service.excludes.length > 0 && (
+                <div className="bg-white rounded-lg p-6 shadow-sm">
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Yang Tidak Termasuk</h2>
+                  <ul className="space-y-2">
+                    {service.excludes.map((item, index) => (
+                      <li key={index} className="flex items-start">
+                        <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        <span className="text-gray-700">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Service Details */}
+              <div className="bg-white rounded-lg p-6 shadow-sm">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Detail Layanan</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {service.duration && (
+                    <div>
+                      <span className="text-sm text-gray-500">Durasi</span>
+                      <p className="font-medium">{service.duration} jam</p>
                     </div>
                   )}
-
-                  {/* Excludes */}
-                  {service.excludes.length > 0 && (
-                    <div className="mt-6">
-                      <h4 className="font-medium text-gray-900 mb-3">Yang Tidak Termasuk:</h4>
-                      <ul className="space-y-2">
-                        {service.excludes.map((item, index) => (
-                          <li key={index} className="flex items-start">
-                            <span className="text-red-500 mr-2">✗</span>
-                            <span className="text-gray-600">{item}</span>
-                          </li>
-                        ))}
-                      </ul>
+                  {service.max_guests && (
+                    <div>
+                      <span className="text-sm text-gray-500">Max Tamu</span>
+                      <p className="font-medium">{service.max_guests} orang</p>
                     </div>
                   )}
-
-                  {/* Service Details */}
-                  <div className="mt-6 grid grid-cols-2 gap-4 pt-4 border-t">
-                    {service.duration && (
-                      <div>
-                        <span className="text-sm text-gray-500">Durasi</span>
-                        <p className="font-medium">{service.duration} jam</p>
-                      </div>
-                    )}
-                    {service.max_revisions && (
-                      <div>
-                        <span className="text-sm text-gray-500">Max Revisi</span>
-                        <p className="font-medium">{service.max_revisions}x</p>
-                      </div>
-                    )}
-                    {service.delivery_time && (
-                      <div>
-                        <span className="text-sm text-gray-500">Waktu Pengiriman</span>
-                        <p className="font-medium">{service.delivery_time} hari</p>
-                      </div>
-                    )}
-                    {service.max_guests && (
-                      <div>
-                        <span className="text-sm text-gray-500">Max Guests</span>
-                        <p className="font-medium">{service.max_guests} orang</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Terms & Conditions */}
-                  {service.terms_conditions && (
-                    <div className="mt-6 pt-4 border-t">
-                      <h4 className="font-medium text-gray-900 mb-2">Syarat & Ketentuan</h4>
-                      <p className="text-gray-600 text-sm whitespace-pre-line">{service.terms_conditions}</p>
+                  {service.delivery_time && (
+                    <div>
+                      <span className="text-sm text-gray-500">Waktu Pengerjaan</span>
+                      <p className="font-medium">{service.delivery_time} hari</p>
+                    </div>
+                  )}
+                  {service.max_revisions && (
+                    <div>
+                      <span className="text-sm text-gray-500">Max Revisi</span>
+                      <p className="font-medium">{service.max_revisions}x</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Vendor Profile */}
-              <div>
+              {/* Terms & Conditions */}
+              {service.terms_conditions && (
                 <div className="bg-white rounded-lg p-6 shadow-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center">
-                      <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center mr-4">
-                        <span className="text-white font-bold">W</span>
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{service.vendor.business_name}</h3>
-                        <p className="text-sm text-gray-600">{service.category.name} - {service.vendor.location || 'Location TBD'}</p>
-                      </div>
-                    </div>
-                    <Link 
-                      href={`/vendors/${service.vendor.id}`}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                    >
-                      Kunjungi Profil Vendor
-                    </Link>
-                  </div>
-                  
-                  <div className="flex items-center mb-4">
-                    <div className="flex items-center mr-4">
-                      <span className="text-yellow-400 mr-1">⭐</span>
-                      <span className="font-medium">{service.vendor.average_rating}</span>
-                    </div>
-                    <span className="text-gray-600 text-sm">{service.vendor.total_reviews} reviews</span>
-                  </div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Syarat & Ketentuan</h2>
+                  <p className="text-gray-700 text-sm leading-relaxed">{service.terms_conditions}</p>
+                </div>
+              )}
 
-                  <p className="text-sm text-gray-600">
-                    <strong>Lokasi:</strong> {service.vendor.location || 'Jakarta, ID'}
-                  </p>
+              {/* Vendor Info */}
+              <div className="bg-white rounded-lg p-6 shadow-sm">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Tentang Vendor</h2>
+                <div className="flex items-start space-x-4">
+                  <div className="w-16 h-16 bg-black rounded-full flex items-center justify-center">
+                    <span className="text-white font-bold text-xl">
+                      {service.vendor.business_name.charAt(0)}
+                    </span>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-lg text-gray-900">{service.vendor.business_name}</h3>
+                    <div className="flex items-center mt-1 mb-2">
+                      <div className="flex items-center">
+                        {[...Array(5)].map((_, i) => (
+                          <svg
+                            key={i}
+                            className={`w-4 h-4 ${i < Math.floor(service.vendor.average_rating) ? 'text-yellow-400' : 'text-gray-300'}`}
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                          </svg>
+                        ))}
+                        <span className="ml-2 text-sm text-gray-600">{service.vendor.average_rating}</span>
+                      </div>
+                      <span className="text-gray-600 text-sm ml-2">({service.vendor.total_reviews} reviews)</span>
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      <strong>Lokasi:</strong> {service.vendor.location || 'Jakarta, ID'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Column - Pricing */}
+            {/* Right Column - Booking (1/3) */}
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg p-6 shadow-sm sticky top-8">
-                <div className="mb-6">
+              {/* Pricing Card */}
+              <div className="bg-white rounded-lg p-6 shadow-sm sticky top-8 space-y-6">
+                <div>
                   <span className="text-sm text-gray-500">Harga</span>
                   <div className="text-2xl font-bold text-gray-900">
                     Rp {service.price.toLocaleString('id-ID')}
@@ -502,7 +606,7 @@ export default function ServiceDetailPage() {
                 </div>
 
                 {/* Quantity */}
-                <div className="mb-6">
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Jumlah</label>
                   <div className="flex items-center border rounded-md">
                     <button
@@ -531,21 +635,64 @@ export default function ServiceDetailPage() {
                   </div>
                 </div>
 
+                {/* Calendar */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Pilih Tanggal</h3>
+                  <BookingCalendar
+                    serviceId={serviceId}
+                    vendorId={service.vendor.id}
+                    selectedDates={selectedDates}
+                    onDatesChange={setSelectedDates}
+                  />
+                </div>
+
+                {/* Selected Dates Summary */}
+                {selectedDates.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-600">Harga per hari:</span>
+                      <span className="font-medium">Rp {service.price.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-600">Jumlah:</span>
+                      <span className="font-medium">{quantity}x</span>
+                    </div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-600">Tanggal terpilih:</span>
+                      <span className="font-medium">{selectedDates.length} hari</span>
+                    </div>
+                    <div className="border-t pt-2 mt-2">
+                      <div className="flex justify-between text-lg font-bold">
+                        <span>Total:</span>
+                        <span>Rp {(service.price * quantity * selectedDates.length).toLocaleString('id-ID')}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 <div className="space-y-3">
-                  <button className="w-full bg-red-500 text-white py-3 rounded-lg font-medium hover:bg-red-600 transition-colors">
-                    Pesan Sekarang
+                  <button 
+                    onClick={handleBookNowClick}
+                    disabled={selectedDates.length === 0}
+                    className={`w-full py-3 rounded-lg font-medium transition-colors ${
+                      selectedDates.length === 0
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-red-500 text-white hover:bg-red-600'
+                    }`}
+                  >
+                    {selectedDates.length === 0 ? 'Pilih Tanggal Terlebih Dahulu' : 'Pesan Sekarang'}
                   </button>
                   <button className="w-full border border-red-500 text-red-500 py-3 rounded-lg font-medium hover:bg-red-50 transition-colors flex items-center justify-center">
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                     </svg>
-                    Chat
+                    Chat Vendor
                   </button>
                 </div>
 
-                <p className="text-xs text-gray-500 mt-4 text-center">
-                  Chat untuk informasi lebih lanjut & kustomisasi produk
+                <p className="text-xs text-gray-500 text-center">
+                  Chat untuk informasi lebih lanjut & kustomisasi layanan
                 </p>
               </div>
             </div>
@@ -563,6 +710,123 @@ export default function ServiceDetailPage() {
           onNext={nextImage}
           onPrev={prevImage}
         />
+      )}
+
+      {/* Booking Confirmation Modal */}
+      {showBookingModal && (
+        <div 
+          className="fixed inset-0 backdrop-blur-md bg-white/20 flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowBookingModal(false)
+              document.body.style.overflow = 'unset'
+            }
+          }}
+        >
+          <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-200">
+            <div className="p-6">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Konfirmasi Booking</h2>
+                  <p className="text-gray-600">Pastikan detail booking Anda benar</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowBookingModal(false)
+                    document.body.style.overflow = 'unset'
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Booking Summary */}
+              <div className="space-y-4 mb-6">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-900 mb-3">Ringkasan Booking</h3>
+                  
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Layanan:</span>
+                      <span className="font-medium text-right">{service.name}</span>
+                    </div>
+                    
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Vendor:</span>
+                      <span className="font-medium">{service.vendor.business_name}</span>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Tanggal:</span>
+                      <span className="font-medium">{selectedDates.length} hari</span>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Jumlah:</span>
+                      <span className="font-medium">{quantity}x</span>
+                    </div>
+
+                    <div className="border-t pt-2 mt-3">
+                      <div className="flex justify-between text-lg font-bold">
+                        <span>Total:</span>
+                        <span className="text-red-600">Rp {(service.price * quantity * selectedDates.length).toLocaleString('id-ID')}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Selected Dates Display */}
+                <div className="text-center">
+                  <p className="text-sm text-gray-600 mb-2">Tanggal yang dipilih:</p>
+                  <div className="flex flex-wrap gap-1 justify-center">
+                    {selectedDates.map(date => (
+                      <span key={date.toISOString()} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                        {date.toLocaleDateString('id-ID', { 
+                          day: 'numeric', 
+                          month: 'short' 
+                        })}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowBookingModal(false)
+                    document.body.style.overflow = 'unset'
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleBookingSubmit}
+                  disabled={bookingLoading}
+                  className={`flex-1 px-4 py-2 rounded-md font-medium transition-colors ${
+                    bookingLoading
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-red-500 text-white hover:bg-red-600'
+                  }`}
+                >
+                  {bookingLoading ? 'Memproses...' : 'Konfirmasi Booking'}
+                </button>
+              </div>
+
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                <p className="text-xs text-blue-800 text-center">
+                  <strong>Info:</strong> Setelah konfirmasi, vendor akan menghubungi Anda untuk detail lebih lanjut
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </AppLayout>
   )
