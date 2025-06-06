@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AuthState, AuthUser, UserProfile } from '@/types/auth.types'
 import { initializeSession, clearSessionCache, clearSnapmeSessions, debugSessionState } from '@/utils/sessionUtils'
-import { shouldRetryError } from '@/utils/errorBoundary'
 import type { User } from '@supabase/supabase-js'
 
 export const useAuth = () => {
@@ -55,7 +54,7 @@ export const useAuth = () => {
   }
 
   // Initialize auth state dengan session utilities
-  const initializeAuth = async (retryCount = 0) => {
+  const initializeAuth = useCallback(async () => {
     try {
       setAuthState(prev => ({ ...prev, loading: true, error: null }))
 
@@ -136,11 +135,7 @@ export const useAuth = () => {
       console.error('Auth initialization error:', error)
       
       // Gunakan error boundary untuk decide retry
-      if (retryCount < 2 && shouldRetryError(error, 'initializeAuth')) {
-        console.log(`Retrying auth initialization... (${retryCount + 1}/3)`)
-        setTimeout(() => initializeAuth(retryCount + 1), 1000 * (retryCount + 1))
-        return
-      }
+      
       
       // Set ke not authenticated setelah max retry atau auth error
       setAuthState({
@@ -151,7 +146,7 @@ export const useAuth = () => {
         error: null // Jangan tampilkan error ke user untuk auth issues
       })
     }
-  }
+  }, [])
 
   // Sign out
   const signOut = async () => {
@@ -259,7 +254,7 @@ export const useAuth = () => {
     return () => {
       subscription.unsubscribe()
     }
-  }, [])
+  }, [initializeAuth])
 
   return {
     ...authState,

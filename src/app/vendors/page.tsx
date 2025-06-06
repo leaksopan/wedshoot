@@ -177,7 +177,7 @@ export default function VendorsPage() {
                 <span> dalam kategori {categories.find(c => c.id === selectedCategory)?.name}</span>
               )}
               {searchQuery && (
-                <span> dengan pencarian "{searchQuery}"</span>
+                <span> dengan pencarian &quot;{searchQuery}&quot;</span>
               )}
             </p>
           </div>

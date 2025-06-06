@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
+import Image from 'next/image'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -36,13 +36,7 @@ export default function ClientBookingsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled'>('all')
 
-  useEffect(() => {
-    if (isAuthenticated && user) {
-      loadBookings()
-    }
-  }, [isAuthenticated, user])
-
-  const loadBookings = async () => {
+  const loadBookings = useCallback(async () => {
     if (!user) return
 
     try {
@@ -50,7 +44,6 @@ export default function ClientBookingsPage() {
 
       // For now, we'll simulate loading bookings since the table might not be in types yet
       // TODO: Replace with actual query once types are updated
-      console.log('Loading bookings for user:', user.id)
       
       // Simulate some sample data
       const sampleBookings: BookingData[] = [
@@ -79,12 +72,18 @@ export default function ClientBookingsPage() {
       ]
 
       setBookings(sampleBookings)
-    } catch (error) {
-      console.error('Error loading bookings:', error)
+    } catch {
+      // Error handled silently
     } finally {
       setLoading(false)
     }
-  }
+  }, [user, profile])
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      loadBookings()
+    }
+  }, [isAuthenticated, user, loadBookings])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -191,7 +190,7 @@ export default function ClientBookingsPage() {
                 ].map((tab) => (
                   <button
                     key={tab.key}
-                    onClick={() => setFilter(tab.key as any)}
+                    onClick={() => setFilter(tab.key as 'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled')}
                     className={`py-2 px-1 border-b-2 font-medium text-sm ${
                       filter === tab.key
                         ? 'border-blue-500 text-blue-600'
@@ -205,144 +204,134 @@ export default function ClientBookingsPage() {
             </div>
           </div>
 
+          {/* Content */}
           {loading ? (
-            <div className="space-y-4">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="bg-white rounded-lg shadow-sm p-6 animate-pulse">
-                  <div className="flex items-start space-x-4">
-                    <div className="w-20 h-20 bg-gray-200 rounded-lg"></div>
-                    <div className="flex-1 space-y-3">
-                      <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-                      <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                      <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Memuat booking...</p>
             </div>
-          ) : filteredBookings.length > 0 ? (
+          ) : filteredBookings.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="bg-white rounded-lg shadow-sm p-8">
+                <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  {filter === 'all' ? 'Belum ada booking' : `Belum ada booking dengan status ${getStatusText(filter)}`}
+                </h3>
+                <p className="text-gray-500 mb-6">
+                  Mulai cari vendor dan buat booking untuk acara pernikahan Anda
+                </p>
+                <Link
+                  href="/services"
+                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  Cari Layanan
+                </Link>
+              </div>
+            </div>
+          ) : (
             <div className="space-y-6">
               {filteredBookings.map((booking) => (
-                <div key={booking.id} className="bg-white rounded-lg shadow-sm overflow-hidden">
+                <div key={booking.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                   <div className="p-6">
                     <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-start space-x-4">
-                        {/* Service Image */}
-                        <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center">
-                          {booking.service.images && booking.service.images.length > 0 ? (
-                            <img
-                              src={booking.service.images[0]}
-                              alt={booking.service.name}
-                              className="w-full h-full object-cover rounded-lg"
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3 mb-2">
+                          <h3 className="text-lg font-semibold text-gray-900">
+                            {booking.service.name}
+                          </h3>
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(booking.status)}`}>
+                            {getStatusText(booking.status)}
+                          </span>
+                        </div>
+                        <p className="text-gray-600 text-sm mb-1">
+                          <strong>Vendor:</strong> {booking.vendor.business_name}
+                        </p>
+                        <p className="text-gray-600 text-sm mb-1">
+                          <strong>Lokasi:</strong> {booking.vendor.location}
+                        </p>
+                        <p className="text-gray-600 text-sm">
+                          <strong>Tanggal:</strong> {booking.booking_dates.join(', ')}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-gray-900">
+                          Rp {booking.total_price.toLocaleString('id-ID')}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          Qty: {booking.quantity}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Service Images */}
+                    {booking.service.images && booking.service.images.length > 0 && (
+                      <div className="mb-4">
+                        <div className="flex space-x-2 overflow-x-auto">
+                          {booking.service.images.slice(0, 3).map((image, index) => (
+                            <Image
+                              key={index}
+                              src={image}
+                              alt={`${booking.service.name} ${index + 1}`}
+                              width={100}
+                              height={80}
+                              className="w-24 h-20 object-cover rounded-lg flex-shrink-0"
                             />
-                          ) : (
-                            <div className="text-gray-400 text-2xl">📸</div>
+                          ))}
+                          {booking.service.images.length > 3 && (
+                            <div className="w-24 h-20 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <span className="text-sm text-gray-500">
+                                +{booking.service.images.length - 3}
+                              </span>
+                            </div>
                           )}
                         </div>
-
-                        {/* Booking Info */}
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <h3 className="text-lg font-semibold text-gray-900">
-                              {booking.service.name}
-                            </h3>
-                            <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(booking.status)}`}>
-                              {getStatusText(booking.status)}
-                            </span>
-                          </div>
-                          
-                          <p className="text-gray-600 mb-1">
-                            <strong>Vendor:</strong> {booking.vendor.business_name}
-                          </p>
-                          
-                          <p className="text-gray-600 mb-1">
-                            <strong>Lokasi:</strong> {booking.vendor.location}
-                          </p>
-
-                          <p className="text-gray-600 mb-1">
-                            <strong>Tanggal:</strong> {booking.booking_dates.map(date => 
-                              new Date(date).toLocaleDateString('id-ID', {
-                                day: 'numeric',
-                                month: 'long',
-                                year: 'numeric'
-                              })
-                            ).join(', ')}
-                          </p>
-
-                          <p className="text-gray-600">
-                            <strong>Total:</strong> Rp {booking.total_price.toLocaleString('id-ID')}
-                          </p>
-                        </div>
                       </div>
+                    )}
 
-                      {/* Booking Date */}
-                      <div className="text-right text-sm text-gray-500">
-                        <p>Booking dibuat</p>
-                        <p>{new Date(booking.created_at).toLocaleDateString('id-ID')}</p>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                      <div className="flex space-x-3">
-                        {booking.status === 'pending' && (
-                          <button className="text-red-600 hover:text-red-700 text-sm font-medium">
-                            Batalkan Booking
-                          </button>
-                        )}
-                        
-                        <Link
-                          href={`/services/${booking.service_id}`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                        >
-                          Lihat Service
-                        </Link>
-                      </div>
-
-                      <div className="flex space-x-3">
-                        <button className="text-blue-600 hover:text-blue-700 text-sm font-medium">
-                          Chat Vendor
-                        </button>
-                        
-                        {booking.status === 'completed' && (
-                          <button className="text-yellow-600 hover:text-yellow-700 text-sm font-medium">
-                            Beri Review
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
+                    {/* Notes */}
                     {booking.notes && (
-                      <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                      <div className="mb-4">
                         <p className="text-sm text-gray-600">
                           <strong>Catatan:</strong> {booking.notes}
                         </p>
                       </div>
                     )}
+
+                    {/* Actions */}
+                    <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                      <p className="text-sm text-gray-500">
+                        Dibuat: {new Date(booking.created_at).toLocaleDateString('id-ID')}
+                      </p>
+                      <div className="flex space-x-3">
+                        <Link
+                          href={`/client/bookings/${booking.id}`}
+                          className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors"
+                        >
+                          Detail
+                        </Link>
+                        {booking.status === 'pending' && (
+                          <button className="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-md hover:bg-gray-200 transition-colors">
+                            Batalkan
+                          </button>
+                        )}
+                        {booking.status === 'confirmed' && (
+                          <Link
+                            href={`/chat/${booking.vendor_id}`}
+                            className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors"
+                          >
+                            Chat Vendor
+                          </Link>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <div className="text-6xl mb-4">📋</div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                {filter === 'all' ? 'Belum Ada Booking' : `Tidak Ada Booking ${getStatusText(filter)}`}
-              </h3>
-              <p className="text-gray-600 mb-6">
-                {filter === 'all' 
-                  ? 'Anda belum melakukan booking layanan wedding.' 
-                  : `Tidak ada booking dengan status ${getStatusText(filter).toLowerCase()}.`
-                }
-              </p>
-              {filter === 'all' && (
-                <Link
-                  href="/services"
-                  className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Cari Layanan Wedding
-                </Link>
-              )}
             </div>
           )}
         </div>

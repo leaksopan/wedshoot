@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/hooks/useAuth'
@@ -13,7 +14,7 @@ export default function ChatListPage() {
   const router = useRouter()
   const { isAuthenticated, user, profile, loading: authLoading } = useAuth()
   const { chatRooms, loading, loadChatRooms, realtimeConnected } = useChat()
-  const [debugInfo, setDebugInfo] = useState<any>(null)
+  const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null)
 
   useEffect(() => {
     // Clear old snapme sessions on page load
@@ -53,7 +54,6 @@ export default function ChatListPage() {
       } : null
     }
     setDebugInfo(info)
-    console.log('🔍 Debug Info:', info)
   }
 
   const formatLastMessageTime = (timestamp: string | null) => {
@@ -253,9 +253,11 @@ export default function ChatListPage() {
                         {/* Avatar */}
                         <div className="relative flex-shrink-0">
                           {partner.avatar ? (
-                            <img
+                            <Image
                               src={partner.avatar}
                               alt={partner.name}
+                              width={48}
+                              height={48}
                               className="w-12 h-12 rounded-full object-cover"
                             />
                           ) : (

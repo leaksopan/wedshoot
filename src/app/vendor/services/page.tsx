@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
@@ -16,52 +16,14 @@ function VendorServicesContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const vendorIdParam = searchParams.get('vendorId')
-  const { user, isAuthenticated, profile } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   
   const [vendor, setVendor] = useState<VendorInfo | null>(null)
   const [services, setServices] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (vendorIdParam) {
-      loadVendorAndServices(vendorIdParam)
-    } else if (isAuthenticated && user) {
-      // Jika tidak ada vendorId di params, coba ambil dari user yang login
-      loadVendorFromUser()
-    } else {
-      setError('Vendor ID tidak ditemukan')
-      setLoading(false)
-    }
-  }, [vendorIdParam, isAuthenticated, user])
-
-  const loadVendorFromUser = async () => {
-    if (!user) return
-
-    try {
-      setLoading(true)
-      setError(null)
-
-      // Load vendor info from current user
-      const { data: vendorData, error: vendorError } = await supabase
-        .from('vendors')
-        .select('*')
-        .eq('user_id', user.id)
-        .single()
-
-      if (vendorError || !vendorData) {
-        throw new Error('Anda belum terdaftar sebagai vendor')
-      }
-
-      loadVendorAndServices(vendorData.id)
-    } catch (error: any) {
-      console.error('Error loading vendor from user:', error)
-      setError(error.message || 'Terjadi kesalahan saat memuat data vendor')
-      setLoading(false)
-    }
-  }
-
-  const loadVendorAndServices = async (vendorId: string) => {
+  const loadVendorAndServices = useCallback(async (vendorId: string) => {
     try {
       setLoading(true)
       setError(null)
@@ -92,13 +54,51 @@ function VendorServicesContent() {
       }
 
       setServices(servicesData || [])
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error loading vendor services:', error)
-      setError(error.message || 'Terjadi kesalahan saat memuat data')
+      setError(error instanceof Error ? error.message : 'Terjadi kesalahan saat memuat data')
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  const loadVendorFromUser = useCallback(async () => {
+    if (!user) return
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Load vendor info from current user
+      const { data: vendorData, error: vendorError } = await supabase
+        .from('vendors')
+        .select('*')
+        .eq('user_id', user.id)
+        .single()
+
+      if (vendorError || !vendorData) {
+        throw new Error('Anda belum terdaftar sebagai vendor')
+      }
+
+      loadVendorAndServices(vendorData.id)
+    } catch (error: unknown) {
+      console.error('Error loading vendor from user:', error)
+      setError(error instanceof Error ? error.message : 'Terjadi kesalahan saat memuat data vendor')
+      setLoading(false)
+    }
+  }, [user, loadVendorAndServices])
+
+  useEffect(() => {
+    if (vendorIdParam) {
+      loadVendorAndServices(vendorIdParam)
+    } else if (isAuthenticated && user) {
+      // Jika tidak ada vendorId di params, coba ambil dari user yang login
+      loadVendorFromUser()
+    } else {
+      setError('Vendor ID tidak ditemukan')
+      setLoading(false)
+    }
+  }, [vendorIdParam, isAuthenticated, user, loadVendorAndServices, loadVendorFromUser])
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -113,7 +113,7 @@ function VendorServicesContent() {
     return `${duration} jam`
   }
 
-  const handleBookService = (serviceId: string, serviceName: string) => {
+  const handleBookService = (serviceId: string) => {
     // Redirect ke halaman detail service
     router.push(`/services/${serviceId}`)
   }
@@ -122,10 +122,10 @@ function VendorServicesContent() {
     if (!vendor) return
     
     // Parse contact_info JSON
-    let contactInfo: any = {}
+    let contactInfo: Record<string, string> = {}
     try {
       if (vendor.contact_info && typeof vendor.contact_info === 'object') {
-        contactInfo = vendor.contact_info
+        contactInfo = vendor.contact_info as Record<string, string>
       }
     } catch (error) {
       console.error('Error parsing contact_info:', error)
@@ -285,30 +285,25 @@ function VendorServicesContent() {
                       )}
                     </div>
 
-                    {service.includes && Array.isArray(service.includes) && service.includes.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="text-sm font-medium text-gray-900 mb-2">Termasuk:</h4>
-                        <ul className="text-sm text-gray-600 space-y-1">
-                          {service.includes.slice(0, 3).map((item: any, index: number) => (
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <h4 className="text-sm font-medium text-gray-900 mb-2">Termasuk:</h4>
+                      <ul className="text-sm text-gray-600 space-y-1">
+                        {Array.isArray(service.includes) && service.includes.slice(0, 3).map((item, index) => (
+                          typeof item === 'string' && (
                             <li key={index} className="flex items-start">
                               <svg className="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                               </svg>
-                              {item}
+                              <span>{item}</span>
                             </li>
-                          ))}
-                          {service.includes.length > 3 && (
-                            <li className="text-xs text-gray-500">
-                              +{service.includes.length - 3} lainnya
-                            </li>
-                          )}
-                        </ul>
-                      </div>
-                    )}
+                          )
+                        ))}
+                      </ul>
+                    </div>
 
                     <div className="pt-4 border-t border-gray-100">
                       <button 
-                        onClick={() => handleBookService(service.id, service.name)}
+                        onClick={() => handleBookService(service.id)}
                         className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                       >
                         Pesan Layanan

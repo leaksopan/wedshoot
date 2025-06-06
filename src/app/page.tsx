@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
@@ -32,6 +33,18 @@ interface Service {
   duration: number | null
 }
 
+interface ServiceFromDB {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  images: string[];
+  service_type: string | null;
+  duration: number | null;
+  vendor_id: string;
+  category_id: string;
+}
+
 interface Vendor {
   id: string
   business_name: string
@@ -45,7 +58,7 @@ interface Vendor {
 }
 
 export default function Home() {
-  const { isAuthenticated, user, profile, loading: authLoading } = useAuth()
+  const { isAuthenticated, profile, loading: authLoading } = useAuth()
   const [categories, setCategories] = useState<VendorCategory[]>([])
   const [featuredServices, setFeaturedServices] = useState<Service[]>([])
   const [topVendors, setTopVendors] = useState<Vendor[]>([])
@@ -169,7 +182,7 @@ export default function Home() {
         const transformedServices: Service[] = servicesWithActiveVendors.map(service => {
           const vendor = vendorMap.get(service.vendor_id)
           const categoryName = vendor ? categoryMap.get(vendor.category_id) : 'General'
-          const serviceData = service as any // Type casting untuk akses images
+          const serviceData = service as ServiceFromDB
           
           return {
             id: service.id,
@@ -311,10 +324,12 @@ export default function Home() {
                   {/* Image Section */}
                   <div className="relative h-48 bg-gradient-to-br from-blue-100 to-purple-100">
                     {service.images && service.images.length > 0 ? (
-                      <img
+                      <Image
                         src={service.images[0]}
                         alt={service.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        layout="fill"
+                        objectFit="cover"
+                        className="group-hover:scale-105 transition-transform duration-300"
                       />
                     ) : (
                       <div className="flex items-center justify-center h-full">

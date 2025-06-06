@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/hooks/useAuth'
@@ -25,6 +26,19 @@ interface Service {
   is_featured: boolean
 }
 
+interface ServiceFromDB {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  images: string[];
+  service_type: string | null;
+  duration: number | null;
+  is_featured: boolean;
+  vendor_id: string;
+  category_id: string;
+}
+
 interface VendorCategory {
   id: string
   name: string
@@ -32,7 +46,7 @@ interface VendorCategory {
 }
 
 export default function ServicesPage() {
-  const { isAuthenticated, user, profile } = useAuth()
+  const { isAuthenticated, profile } = useAuth()
   const [services, setServices] = useState<Service[]>([])
   const [categories, setCategories] = useState<VendorCategory[]>([])
   const [loading, setLoading] = useState(true)
@@ -94,7 +108,7 @@ export default function ServicesPage() {
         const transformedServices: Service[] = activeServices.map(service => {
           const vendor = vendorMap.get(service.vendor_id)
           const categoryName = vendor ? categoryMap.get(vendor.category_id) : 'General'
-          const serviceData = service as any
+          const serviceData = service as ServiceFromDB
 
           return {
             id: service.id,
@@ -240,14 +254,12 @@ export default function ServicesPage() {
                   {/* Service Image */}
                   <div className="relative h-48 bg-gray-200">
                     {service.images && service.images.length > 0 ? (
-                      <img
+                      <Image
                         src={service.images[0]}
                         alt={service.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement
-                          target.src = '/placeholder-service.jpg'
-                        }}
+                        layout="fill"
+                        objectFit="cover"
+                        className="group-hover:scale-105 transition-transform duration-300"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">

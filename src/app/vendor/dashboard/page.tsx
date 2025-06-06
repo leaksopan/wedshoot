@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -58,23 +58,7 @@ export default function VendorDashboardPage() {
   const [updatingService, setUpdatingService] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'services'>('overview')
 
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push('/login')
-      return
-    }
-
-    if (!authLoading && profile?.preferred_role !== 'vendor') {
-      router.push('/dashboard')
-      return
-    }
-
-    if (isAuthenticated && user) {
-      loadVendorData()
-    }
-  }, [isAuthenticated, user, profile, authLoading, router])
-
-  const loadVendorData = async () => {
+  const loadVendorData = useCallback(async () => {
     if (!user?.id) return
 
     try {
@@ -125,7 +109,23 @@ export default function VendorDashboardPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user, router])
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push('/login')
+      return
+    }
+
+    if (!authLoading && profile?.preferred_role !== 'vendor') {
+      router.push('/dashboard')
+      return
+    }
+
+    if (isAuthenticated && user) {
+      loadVendorData()
+    }
+  }, [isAuthenticated, user, profile, authLoading, router, loadVendorData])
 
   const handleToggleFeatured = async (serviceId: string, currentStatus: boolean | null) => {
     setUpdatingService(serviceId)

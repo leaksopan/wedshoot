@@ -3,12 +3,25 @@
 import { useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { debugSessionState, clearSessionCache, refreshSession } from '@/utils/sessionUtils'
-import { isAuthError } from '@/utils/errorBoundary'
+
+interface DebugInfo {
+  authState: {
+    isAuthenticated: boolean
+    hasUser: boolean
+    userId: string | undefined
+    hasProfile: boolean
+    preferredRole: string | null | undefined
+    loading: boolean
+    error: string | null
+  }
+  localStorage: { keys: string[] } | 'N/A'
+  sessionStorage: { keys: string[] } | 'N/A'
+}
 
 export const DebugAuth = () => {
   const { isAuthenticated, user, profile, loading, error, clearCache } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
-  const [debugInfo, setDebugInfo] = useState<any>(null)
+  const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null)
 
   // Hanya tampil di development
   if (process.env.NODE_ENV === 'production') {
@@ -19,7 +32,7 @@ export const DebugAuth = () => {
     await debugSessionState()
     // Get debug info untuk display
     try {
-      const info = {
+      const info: DebugInfo = {
         authState: {
           isAuthenticated,
           hasUser: !!user,
@@ -52,7 +65,7 @@ export const DebugAuth = () => {
   const handleRefreshSession = async () => {
     const result = await refreshSession()
     const errorMessage = result.error && typeof result.error === 'object' && 'message' in result.error 
-      ? (result.error as any).message 
+      ? (result.error as { message: string }).message 
       : 'Unknown error'
     alert(result.success ? 'Session refreshed!' : `Failed: ${errorMessage}`)
   }
@@ -111,20 +124,8 @@ export const DebugAuth = () => {
           </span>
         </div>
 
-        {error && (
-          <div className={`text-xs p-2 rounded ${
-            isAuthError({ message: error }) 
-              ? 'text-yellow-600 bg-yellow-50' 
-              : 'text-red-600 bg-red-50'
-          }`}>
-            Error: {error}
-            {isAuthError({ message: error }) && (
-              <div className="text-xs mt-1 font-normal">
-                (Auth error - normal untuk user yang belum login)
-              </div>
-            )}
-          </div>
-        )}
+        
+        
 
         <div className="pt-2 border-t space-y-1">
           <button

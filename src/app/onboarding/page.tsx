@@ -3,11 +3,20 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { User } from '@supabase/supabase-js'
+
+interface Profile {
+  id: string;
+  full_name: string;
+  phone: string;
+  preferred_role: 'client' | 'vendor';
+  onboarding_completed: boolean;
+}
 
 export default function OnboardingPage() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -60,7 +69,7 @@ export default function OnboardingPage() {
       const { error } = await supabase
         .from('user_profiles')
         .update({ onboarding_completed: true })
-        .eq('id', user.id)
+        .eq('id', user?.id)
 
       if (!error) {
         // Redirect ke home page setelah onboarding selesai

@@ -1,9 +1,16 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase, subscribeToMessages, subscribeToChatRooms, unsubscribeAll } from '@/lib/supabase'
-import { ChatRoom, Message } from '@/types/database'
+import { ChatRoom, Message, Json } from '@/types/database'
 import { useAuth } from './useAuth'
+
+type SenderProfile = {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+}
 
 export const useChat = () => {
   const { user, profile } = useAuth()
@@ -138,6 +145,26 @@ export const useChat = () => {
     }
   }, [user, profile])
 
+  // Mark messages as read by current user
+  const markMessagesAsRead = useCallback(async (roomId: string) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .update({ read_at: new Date().toISOString() })
+        .eq('room_id', roomId)
+        .neq('sender_id', user.id)
+        .is('read_at', null)
+
+      if (error) {
+        console.warn(`Error marking messages as read: ${error.message}`)
+      }
+    } catch (err) {
+      console.warn(`Exception in markMessagesAsRead: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }, [user]);
+
   // Load messages untuk room tertentu
   const loadMessages = useCallback(async (roomId: string) => {
     setLoading(true)
@@ -176,19 +203,16 @@ export const useChat = () => {
       const messagesWithSender = await Promise.all(
         (messageData || []).map(async (message) => {
           // Get sender info dengan error handling yang lebih baik
-          const { data: senderData, error: senderError } = await supabase
+          const { data: senderData } = await supabase
             .from('user_profiles')
             .select('id, full_name, avatar_url')
             .eq('id', message.sender_id)
             .maybeSingle()
 
-          if (senderError) {
-          }
-
           // Get reply_to info if exists
           let replyToData = undefined
           if (message.reply_to_message_id) {
-            const { data: replyMessage, error: replyError } = await supabase
+            const { data: replyMessage } = await supabase
               .from('messages')
               .select(`
                 id,
@@ -199,7 +223,7 @@ export const useChat = () => {
               .eq('id', message.reply_to_message_id)
               .maybeSingle()
 
-            if (replyMessage && !replyError) {
+            if (replyMessage) {
               const { data: replySender } = await supabase
                 .from('user_profiles')
                 .select('id, full_name')
@@ -234,7 +258,7 @@ export const useChat = () => {
     } finally {
       setLoading(false)
     }
-  }, [user])
+  }, [user, markMessagesAsRead])
 
   // Send message
   const sendMessage = useCallback(async (
@@ -245,9 +269,14 @@ export const useChat = () => {
     fileName?: string,
     fileSize?: number,
     replyToMessageId?: string,
-    servicePreview?: any
+    servicePreview?: Json
   ) => {
-    if (!user || !content.trim()) {
+    if (!user) {
+      setError('User not authenticated to send message')
+      return false
+    }
+    if (!content.trim() && !fileUrl) {
+      setError('Cannot send an empty message')
       return false
     }
 
@@ -367,51 +396,19 @@ export const useChat = () => {
     }
   }, [user, profile])
 
-  // Mark messages as read
-  const markMessagesAsRead = useCallback(async (roomId: string) => {
-    if (!user) {
-      return
-    }
-
-    try {
-      // Mark unread messages as read
-      await supabase
-        .from('messages')
-        .update({ read_at: new Date().toISOString() })
-        .eq('room_id', roomId)
-        .neq('sender_id', user.id)
-        .is('read_at', null)
-
-      // Reset unread count berdasarkan role user
-      if (profile?.is_vendor) {
-        await supabase
-          .from('chat_rooms')
-          .update({ unread_count_vendor: 0 })
-          .eq('id', roomId)
-      } else {
-        await supabase
-          .from('chat_rooms')
-          .update({ unread_count_client: 0 })
-          .eq('id', roomId)
-      }
-    } catch (error) {
-      setError(`Exception marking as read: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }, [user, profile])
-
   // Setup realtime subscriptions dengan helper functions baru
   useEffect(() => {
     if (!user) {
       return
     }
 
-    let messagesChannel: any = null
-    let roomsChannel: any = null
+    let messagesChannel: RealtimeChannel | null = null
+    let roomsChannel: RealtimeChannel | null = null
     let retryAttempt = 0
     const maxRetries = 3
 
     // Cache untuk menyimpan sender data sementara
-    const senderCache = new Map<string, any>()
+    const senderCache = new Map<string, SenderProfile>()
 
     // Function untuk setup messages subscription dengan retry
     const setupMessagesSubscription = () => {
@@ -423,7 +420,7 @@ export const useChat = () => {
           const eventType = payload.eventType || 'INSERT'
           
           if (eventType === 'INSERT' && payload.new) {
-            const newMessage = payload.new as any
+            const newMessage = payload.new as unknown as Message
             
             // Skip jika message dari user sendiri (sudah ada dari optimistic update)
             if (newMessage.sender_id === user.id) {
@@ -434,13 +431,13 @@ export const useChat = () => {
             let senderData = senderCache.get(newMessage.sender_id)
             
             if (!senderData) {
-              const { data: fetchedSender, error: senderError } = await supabase
+              const { data: fetchedSender } = await supabase
                 .from('user_profiles')
                 .select('id, full_name, avatar_url')
                 .eq('id', newMessage.sender_id)
                 .maybeSingle()
 
-              if (!senderError && fetchedSender) {
+              if (fetchedSender) {
                 senderData = fetchedSender
                 senderCache.set(newMessage.sender_id, senderData)
               }
@@ -472,13 +469,7 @@ export const useChat = () => {
             }, 1000)
             
           } else if (eventType === 'UPDATE' && payload.new) {
-            setMessages(prevMessages => 
-              prevMessages.map(msg => 
-                msg.id === payload.new.id 
-                  ? { ...msg, ...payload.new, sender: msg.sender }
-                  : msg
-              )
-            )
+            
           }
         },
         (error) => {
@@ -517,12 +508,12 @@ export const useChat = () => {
     // Subscribe to chat rooms updates
     roomsChannel = subscribeToChatRooms(
       user.id,
-      (payload) => {
+      () => {
         setTimeout(() => {
           loadChatRooms()
         }, 500)
       },
-      (error) => {
+      () => {
       }
     )
 
@@ -538,7 +529,7 @@ export const useChat = () => {
       senderCache.clear()
       retryAttempt = 0
     }
-  }, [user?.id, currentRoomId, markMessagesAsRead, loadChatRooms])
+  }, [user, currentRoomId, markMessagesAsRead, loadChatRooms])
 
   // Fallback polling jika realtime tidak available
   useEffect(() => {

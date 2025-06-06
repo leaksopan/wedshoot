@@ -10,17 +10,11 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-    flowType: 'pkce',
-    // Paksa storage key yang benar untuk WedShoot
-    storageKey: 'wedshoot-auth-token'
+    flowType: 'pkce'
   },
   realtime: {
     params: {
-      eventsPerSecond: 5, // Reduce untuk stabilitas
-      heartbeatIntervalMs: 30000, // Increase untuk avoid timeout
-      reconnectDelay: 2000, // Increase delay
-      timeout: 20000 // Increase timeout
+      eventsPerSecond: 10
     }
   },
   global: {
@@ -36,21 +30,41 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   }
 })
 
-// Debug configuration
-if (typeof window !== 'undefined') {
-  // Clear any old snapme sessions
+// Debug session di development mode
+export const debugSession = async () => {
+  if (process.env.NODE_ENV !== 'development') return
+
+  try {
+    const { error } = await supabase.auth.getSession()
+    if (error) return
+    // Session info logged in development only
+  } catch {
+    // Error silently handled
+  }
+}
+
+// Auto initialize auth listener
+supabase.auth.onAuthStateChange(() => {
+  if (process.env.NODE_ENV === 'development') {
+    // Auth state changes logged in development only
+  }
+})
+
+// Clear auth data helper
+export const clearAuthData = () => {
   try {
     const keysToRemove = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key && key.includes('snapme')) {
+      if (key?.includes('supabase')) {
         keysToRemove.push(key)
       }
     }
+    
     keysToRemove.forEach(key => {
       localStorage.removeItem(key)
     })
-  } catch (error) {
+  } catch {
     // Silent cleanup
   }
 }
@@ -58,14 +72,14 @@ if (typeof window !== 'undefined') {
 // Helper function untuk checking koneksi
 export const checkSupabaseConnection = async () => {
   try {
-    const { data, error } = await supabase.from('user_profiles').select('count', { count: 'exact', head: true })
+    const { error } = await supabase.from('user_profiles').select('count', { count: 'exact', head: true })
     
     if (error) {
       return false
     }
     
     return true
-  } catch (error) {
+  } catch {
     return false
   }
 }
@@ -73,18 +87,26 @@ export const checkSupabaseConnection = async () => {
 // Helper function untuk test auth
 export const testSupabaseAuth = async () => {
   try {
-    const { data, error } = await supabase.auth.getSession()
+    const { error } = await supabase.auth.getSession()
     return !error
-  } catch (error) {
+  } catch {
     return false
   }
+}
+
+// Type untuk realtime payload
+interface RealtimePayload {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+  new?: Record<string, unknown>
+  old?: Record<string, unknown>
+  errors?: string[] | null
 }
 
 // Realtime helpers untuk chat dengan improved error handling
 export const subscribeToMessages = (
   roomId: string, 
-  onMessage: (payload: any) => void,
-  onError?: (error: any) => void
+  onMessage: (payload: RealtimePayload) => void,
+  onError?: (error: string) => void
 ) => {
   const channelName = `messages:${roomId}:${Date.now()}`
   
@@ -122,7 +144,7 @@ export const subscribeToMessages = (
     )
     .subscribe((status, err) => {
       if (status === 'CHANNEL_ERROR') {
-        onError?.(err || status)
+        onError?.(err?.toString() || status)
       } else if (status === 'TIMED_OUT') {
         onError?.('Connection timed out')
       } else if (status === 'CLOSED') {
@@ -135,8 +157,8 @@ export const subscribeToMessages = (
 
 export const subscribeToChatRooms = (
   userId: string,
-  onRoomUpdate: (payload: any) => void,
-  onError?: (error: any) => void
+  onRoomUpdate: (payload: RealtimePayload) => void,
+  onError?: (error: string) => void
 ) => {
   const channelName = `chat_rooms:user:${userId}:${Date.now()}`
   
@@ -151,7 +173,7 @@ export const subscribeToChatRooms = (
       },
       (payload) => {
         // Filter hanya room yang user terlibat
-        const room = payload.new as any
+        const room = payload.new as Record<string, unknown>
         if (room.client_id === userId || room.vendor_id === userId) {
           onRoomUpdate({ ...payload, eventType: 'UPDATE' })
         }
@@ -166,7 +188,7 @@ export const subscribeToChatRooms = (
       },
       (payload) => {
         // Filter hanya room yang user terlibat
-        const room = payload.new as any
+        const room = payload.new as Record<string, unknown>
         if (room.client_id === userId || room.vendor_id === userId) {
           onRoomUpdate({ ...payload, eventType: 'INSERT' })
         }
@@ -174,7 +196,7 @@ export const subscribeToChatRooms = (
     )
     .subscribe((status, err) => {
       if (status === 'CHANNEL_ERROR') {
-        onError?.(err || status)
+        onError?.(err?.toString() || status)
       } else if (status === 'TIMED_OUT') {
         onError?.('Connection timed out')
       } else if (status === 'CLOSED') {
@@ -195,21 +217,6 @@ export const debugRealtimeStatus = () => {
   if (process.env.NODE_ENV !== 'development') return null
   
   const channels = supabase.getChannels()
-  console.log('🔍 Active Realtime Channels:', {
-    count: channels.length,
-    channels: channels.map(ch => ({
-      topic: ch.topic,
-      state: ch.state,
-      isJoined: ch.state === 'joined'
-    }))
-  })
-  
-  // Check overall connection status
-  console.log('🌐 Supabase Connection Status:', {
-    realtime: supabase.realtime?.isConnected() || false,
-    channels: channels.length,
-    timestamp: new Date().toISOString()
-  })
   
   return {
     isConnected: supabase.realtime?.isConnected() || false,
@@ -222,12 +229,8 @@ export const debugRealtimeStatus = () => {
 export const retryRealtimeConnection = async (maxRetries = 3, delay = 2000) => {
   if (process.env.NODE_ENV !== 'development') return false
   
-  console.log('🔄 Starting realtime connection retry...')
-  
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`🔄 Retry attempt ${attempt}/${maxRetries}`)
-      
       // Disconnect dan reconnect
       await supabase.realtime.disconnect()
       await new Promise(resolve => setTimeout(resolve, delay))
@@ -236,75 +239,61 @@ export const retryRealtimeConnection = async (maxRetries = 3, delay = 2000) => {
       // Test connection
       const status = debugRealtimeStatus()
       if (status?.isConnected) {
-        console.log('✅ Realtime connection restored!')
         return true
       }
       
-    } catch (error) {
-      console.error(`❌ Retry attempt ${attempt} failed:`, error)
+    } catch {
+      // Error handled silently
     }
     
     if (attempt < maxRetries) {
-      console.log(`⏳ Waiting ${delay}ms before next retry...`)
       await new Promise(resolve => setTimeout(resolve, delay))
       delay *= 1.5 // Exponential backoff
     }
   }
   
-  console.error('❌ Failed to restore realtime connection after all retries')
   return false
 }
 
+interface HealthCheckResult {
+  timestamp: string
+  connection: boolean
+  database: boolean
+  auth: boolean
+  channels: number
+  errors: string[]
+}
+
 // Health check utility
-export const performRealtimeHealthCheck = async () => {
+export const performRealtimeHealthCheck = async (): Promise<HealthCheckResult | null> => {
   if (process.env.NODE_ENV !== 'development') return null
   
-  console.log('🏥 Performing realtime health check...')
-  
-  const results = {
+  const results: HealthCheckResult = {
     timestamp: new Date().toISOString(),
     connection: false,
     database: false,
     auth: false,
     channels: 0,
-    errors: [] as string[]
+    errors: []
   }
   
   try {
     // Test database connection
-    const { error: dbError } = await supabase
-      .from('user_profiles')
-      .select('count', { count: 'exact', head: true })
-    
-    if (!dbError) {
-      results.database = true
-    } else {
-      results.errors.push(`Database: ${dbError.message}`)
-    }
+    results.database = await checkSupabaseConnection()
     
     // Test auth
-    const { error: authError } = await supabase.auth.getSession()
-    if (!authError) {
-      results.auth = true
-    } else {
-      results.errors.push(`Auth: ${authError.message}`)
-    }
+    results.auth = await testSupabaseAuth()
     
-    // Test realtime
-    const status = debugRealtimeStatus()
-    if (status) {
-      results.connection = status.isConnected
-      results.channels = status.channelCount
-    }
+    // Test realtime connection
+    const realtimeStatus = debugRealtimeStatus()
+    results.connection = realtimeStatus?.isConnected || false
+    results.channels = realtimeStatus?.channelCount || 0
     
-    if (!results.connection) {
-      results.errors.push('Realtime: Not connected')
-    }
-    
-  } catch (error) {
-    results.errors.push(`Health check exception: ${error}`)
+    return results
+  } catch {
+    results.errors.push('Health check failed')
+    return results
   }
-  
-  console.log('🏥 Health check results:', results)
-  return results
-} 
+}
+
+export default supabase 

@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
 interface BookingCalendarProps {
-  serviceId: string
   vendorId: string
   selectedDates: Date[]
   onDatesChange: (dates: Date[]) => void
@@ -16,7 +15,6 @@ interface AvailabilityData {
 }
 
 const BookingCalendar: React.FC<BookingCalendarProps> = ({
-  serviceId,
   vendorId,
   selectedDates,
   onDatesChange
@@ -26,11 +24,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
   const [bookedDates, setBookedDates] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadAvailabilityData()
-  }, [currentMonth, serviceId, vendorId])
-
-  const loadAvailabilityData = async () => {
+  const loadAvailabilityData = useCallback(async () => {
     try {
       setLoading(true)
 
@@ -75,7 +69,11 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentMonth, vendorId])
+
+  useEffect(() => {
+    loadAvailabilityData()
+  }, [loadAvailabilityData])
 
   const getDateStatus = (date: Date): 'available' | 'booked' | 'blocked' | 'selected' => {
     const dateString = date.toISOString().split('T')[0]
@@ -154,7 +152,6 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
     const month = currentMonth.getMonth()
     
     const firstDay = new Date(year, month, 1)
-    const lastDay = new Date(year, month + 1, 0)
     const startDate = new Date(firstDay)
     startDate.setDate(startDate.getDate() - firstDay.getDay())
     

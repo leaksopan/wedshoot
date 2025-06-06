@@ -4,11 +4,21 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
+import { User } from '@supabase/supabase-js'
+
+interface Profile {
+  id: string;
+  full_name: string;
+  phone: string;
+  preferred_role: 'client' | 'vendor';
+  is_client: boolean;
+  onboarding_completed: boolean;
+}
 
 export default function DashboardPage() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -68,13 +78,19 @@ export default function DashboardPage() {
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="bg-white rounded-lg shadow p-6 mb-6 relative">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">
               Selamat Datang! 🎉
             </h2>
             <p className="text-gray-600 mb-6">
               Registrasi berhasil dan Anda sekarang berada di dashboard WedShoot.
             </p>
+            <button
+              onClick={handleSignOut}
+              className="absolute top-4 right-4 bg-red-500 text-white py-2 px-4 rounded-md hover:bg-red-600 transition-colors text-sm"
+            >
+              Sign Out
+            </button>
 
             {profile && (
               <div className="bg-green-50 p-4 rounded-lg">
@@ -84,7 +100,7 @@ export default function DashboardPage() {
                     <span className="font-medium">Full Name:</span> {profile.full_name}
                   </div>
                   <div>
-                    <span className="font-medium">Email:</span> {user.email}
+                    <span className="font-medium">Email:</span> {user?.email}
                   </div>
                   <div>
                     <span className="font-medium">Role:</span> {profile.preferred_role}

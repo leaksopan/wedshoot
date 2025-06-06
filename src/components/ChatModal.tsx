@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useChat } from '@/hooks/useChat'
 import { useAuth } from '@/hooks/useAuth'
@@ -16,7 +16,7 @@ interface ChatModalProps {
 
 const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatModalProps) => {
   const router = useRouter()
-  const { user, profile } = useAuth()
+  const { user } = useAuth()
   const { getOrCreateChatRoom, loadMessages, sendMessage, messages, loading } = useChat()
   
   const [roomId, setRoomId] = useState<string | null>(null)
@@ -24,19 +24,7 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
   const [sending, setSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Initialize chat room ketika modal dibuka
-  useEffect(() => {
-    if (isOpen && user && vendorId) {
-      initializeChatRoom()
-    }
-  }, [isOpen, user, vendorId])
-
-  // Auto scroll ke pesan terbaru
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  const initializeChatRoom = async () => {
+  const initializeChatRoom = useCallback(async () => {
     if (!user) {
       // Redirect ke login jika belum authenticate
       router.push('/login')
@@ -48,7 +36,19 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
       setRoomId(roomId)
       await loadMessages(roomId)
     }
-  }
+  }, [user, vendorId, getOrCreateChatRoom, loadMessages, router])
+
+  // Initialize chat room ketika modal dibuka
+  useEffect(() => {
+    if (isOpen && user && vendorId) {
+      initializeChatRoom()
+    }
+  }, [isOpen, user, vendorId, initializeChatRoom])
+
+  // Auto scroll ke pesan terbaru
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

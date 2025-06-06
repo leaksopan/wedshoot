@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
 import BookingCalendar from '@/components/BookingCalendar'
@@ -36,6 +37,25 @@ interface ServiceDetail {
     name: string
     slug: string
   }
+}
+
+interface ServiceFromDB {
+  id: string
+  name: string
+  description: string
+  price: number
+  duration: number | null
+  service_type: string
+  includes: string[]
+  excludes: string[]
+  terms_conditions: string | null
+  max_revisions: number | null
+  delivery_time: number | null
+  advance_booking_days: number | null
+  max_guests: number | null
+  images: string[]
+  vendor_id: string
+  category_id: string
 }
 
 interface LightboxProps {
@@ -86,10 +106,12 @@ const Lightbox: React.FC<LightboxProps> = ({ images, currentIndex, isOpen, onClo
         )}
 
         {/* Main Image */}
-        <img
+        <Image
           src={images[currentIndex]}
           alt={`Gallery image ${currentIndex + 1}`}
-          className="max-w-full max-h-full object-contain"
+          layout="fill"
+          objectFit="contain"
+          className="max-w-full max-h-full"
         />
 
         {/* Image Counter */}
@@ -121,31 +143,7 @@ export default function ServiceDetailPage() {
   // Chat states
   const [showChatModal, setShowChatModal] = useState(false)
 
-  useEffect(() => {
-    if (serviceId) {
-      loadServiceDetail()
-    }
-  }, [serviceId])
-
-  // Keyboard navigation for carousel
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (service?.images && service.images.length > 1) {
-        if (event.key === 'ArrowLeft') {
-          prevImage()
-        } else if (event.key === 'ArrowRight') {
-          nextImage()
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [service?.images])
-
-  const loadServiceDetail = async () => {
+  const loadServiceDetail = useCallback(async () => {
     try {
       // Get service data - tidak bergantung pada authentication
       const { data: serviceData, error: serviceError } = await supabase
@@ -184,35 +182,35 @@ export default function ServiceDetailPage() {
         .single()
 
       if (vendorData && categoryData) {
+        const serviceRecord = serviceData as ServiceFromDB
         const transformedService: ServiceDetail = {
-          id: serviceData.id,
-          name: serviceData.name,
-          description: serviceData.description || '',
-          price: parseFloat(serviceData.price?.toString() || '0'),
-          duration: serviceData.duration,
-          service_type: serviceData.service_type || '',
-          includes: Array.isArray(serviceData.includes) ? serviceData.includes.filter((item: any): item is string => typeof item === 'string') : [],
-          excludes: Array.isArray(serviceData.excludes) ? serviceData.excludes.filter((item: any): item is string => typeof item === 'string') : [],
-          terms_conditions: serviceData.terms_conditions,
-          max_revisions: serviceData.max_revisions,
-          delivery_time: serviceData.delivery_time,
-          advance_booking_days: serviceData.advance_booking_days,
-          max_guests: serviceData.max_guests,
-          images: (serviceData as any).images || [],
+          id: serviceRecord.id,
+          name: serviceRecord.name,
+          description: serviceRecord.description || '',
+          price: parseFloat(serviceRecord.price?.toString() || '0'),
+          duration: serviceRecord.duration,
+          service_type: serviceRecord.service_type || '',
+          includes: Array.isArray(serviceRecord.includes) ? serviceRecord.includes.filter((item: unknown): item is string => typeof item === 'string') : [],
+          excludes: Array.isArray(serviceRecord.excludes) ? serviceRecord.excludes.filter((item: unknown): item is string => typeof item === 'string') : [],
+          terms_conditions: serviceRecord.terms_conditions,
+          max_revisions: serviceRecord.max_revisions,
+          delivery_time: serviceRecord.delivery_time,
+          advance_booking_days: serviceRecord.advance_booking_days,
+          max_guests: serviceRecord.max_guests,
+          images: serviceRecord.images || [],
           vendor: {
             id: vendorData.id,
             business_name: vendorData.business_name,
             location: vendorData.location,
             average_rating: parseFloat(vendorData.average_rating?.toString() || '0'),
-            total_reviews: vendorData.total_reviews || 0,
-            user_id: vendorData.user_id
+            total_reviews: vendorData.total_reviews,
+            user_id: vendorData.user_id,
           },
           category: {
             name: categoryData.name,
-            slug: categoryData.slug || 'general'
-          }
+            slug: categoryData.slug,
+          },
         }
-
         setService(transformedService)
       }
     } catch (error) {
@@ -220,7 +218,43 @@ export default function ServiceDetailPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [serviceId, router])
+
+  useEffect(() => {
+    if (serviceId) {
+      loadServiceDetail()
+    }
+  }, [serviceId, loadServiceDetail])
+
+  const nextImage = useCallback(() => {
+    setLightboxIndex((prevIndex) =>
+      prevIndex === (service?.images?.length ?? 0) - 1 ? 0 : prevIndex + 1
+    )
+  }, [service?.images?.length])
+
+  const prevImage = useCallback(() => {
+    setLightboxIndex((prevIndex) =>
+      prevIndex === 0 ? (service?.images?.length ?? 0) - 1 : prevIndex - 1
+    )
+  }, [service?.images?.length])
+
+  // Keyboard navigation for carousel
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (service?.images && service.images.length > 1) {
+        if (event.key === 'ArrowLeft') {
+          prevImage()
+        } else if (event.key === 'ArrowRight') {
+          nextImage()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [service?.images, prevImage, nextImage])
 
   const openLightbox = (index: number) => {
     setLightboxIndex(index)
@@ -229,18 +263,6 @@ export default function ServiceDetailPage() {
 
   const closeLightbox = () => {
     setLightboxOpen(false)
-  }
-
-  const nextImage = () => {
-    if (service?.images) {
-      setLightboxIndex((lightboxIndex + 1) % service.images.length)
-    }
-  }
-
-  const prevImage = () => {
-    if (service?.images) {
-      setLightboxIndex((lightboxIndex - 1 + service.images.length) % service.images.length)
-    }
   }
 
   const handleBookNowClick = () => {
@@ -276,47 +298,18 @@ export default function ServiceDetailPage() {
     try {
       setBookingLoading(true)
 
-      // Convert dates to string array
-      const bookingDatesStr = selectedDates.map(date => date.toISOString().split('T')[0])
-      
-      // Calculate total price
-      const totalPrice = service.price * quantity * selectedDates.length
-
-      // Create actual booking in database
-      console.log('Creating booking with data:', {
-        service_id: serviceId,
+      await supabase.from('bookings').insert({
         client_id: user.id,
         vendor_id: service.vendor.id,
-        booking_dates: bookingDatesStr,
-        quantity: quantity,
-        total_price: totalPrice
+        service_id: service.id,
+        booking_dates: selectedDates.map(d => d.toISOString()),
+        quantity,
+        total_price: service.price * quantity,
+        status: 'pending',
+        client_email: user.email || '',
+        notes: null
       })
 
-      const { data: bookingData, error } = await supabase
-        .from('bookings')
-        .insert({
-          service_id: serviceId,
-          client_id: user.id,
-          vendor_id: service.vendor.id,
-          booking_dates: bookingDatesStr,
-          quantity: quantity,
-          total_price: totalPrice,
-          status: 'pending',
-          client_name: profile?.full_name || '',
-          client_phone: profile?.phone || '',
-          client_email: user.email || '',
-          notes: null
-        })
-        .select()
-        .single()
-
-      if (error) {
-        console.error('Booking error:', error)
-        alert('Terjadi kesalahan saat melakukan booking. Silakan coba lagi.')
-        return
-      }
-
-      alert('Booking berhasil dibuat! Vendor akan menghubungi Anda segera.')
       setShowBookingModal(false)
       document.body.style.overflow = 'unset'
       setSelectedDates([])
@@ -330,11 +323,26 @@ export default function ServiceDetailPage() {
       }, 1000)
 
     } catch (error) {
-      console.error('Booking error:', error)
+      console.error('Error creating booking:', error)
       alert('Terjadi kesalahan saat melakukan booking.')
     } finally {
       setBookingLoading(false)
     }
+  }
+
+  const handleContactVendor = () => {
+    if (!isAuthenticated) {
+      alert('Silakan login terlebih dahulu untuk menghubungi vendor')
+      router.push('/auth/login')
+      return
+    }
+
+    if (profile?.preferred_role === 'vendor') {
+      alert('Vendor tidak dapat menghubungi klien')
+      return
+    }
+
+    setShowChatModal(true)
   }
 
   if (loading) {
@@ -356,7 +364,7 @@ export default function ServiceDetailPage() {
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Service Not Found</h2>
-            <p className="text-gray-600 mb-6">The service you're looking for doesn't exist or has been removed.</p>
+            <p className="text-gray-600 mb-6">The service you&apos;re looking for doesn&apos;t exist or has been removed.</p>
             <Link
               href="/services"
               className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 transition-colors"
@@ -417,11 +425,11 @@ export default function ServiceDetailPage() {
             <div className="mb-8 flex justify-center">
               <div className="relative rounded-lg overflow-hidden bg-gray-200" style={{ width: '560px', height: '280px' }}>
                 {/* Main Image */}
-                <img
+                <Image
                   src={service.images[lightboxIndex]}
                   alt={`${service.name} - Image ${lightboxIndex + 1}`}
-                  width="560"
-                  height="280"
+                  width={560}
+                  height={280}
                   className="w-full h-full object-contain cursor-pointer transition-opacity duration-300 bg-gray-100"
                   onClick={() => openLightbox(lightboxIndex)}
                 />
@@ -493,7 +501,7 @@ export default function ServiceDetailPage() {
               {/* What's Included */}
               {service.includes.length > 0 && (
                 <div className="bg-white rounded-lg p-6 shadow-sm">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Yang Termasuk</h2>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4">What&apos;s Included</h2>
                   <ul className="space-y-2">
                     {service.includes.map((item, index) => (
                       <li key={index} className="flex items-start">
@@ -510,7 +518,7 @@ export default function ServiceDetailPage() {
               {/* What's Excluded */}
               {service.excludes.length > 0 && (
                 <div className="bg-white rounded-lg p-6 shadow-sm">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Yang Tidak Termasuk</h2>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4">What&apos;s Not Included</h2>
                   <ul className="space-y-2">
                     {service.excludes.map((item, index) => (
                       <li key={index} className="flex items-start">
@@ -643,7 +651,6 @@ export default function ServiceDetailPage() {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-3">Pilih Tanggal</h3>
                   <BookingCalendar
-                    serviceId={serviceId}
                     vendorId={service.vendor.id}
                     selectedDates={selectedDates}
                     onDatesChange={setSelectedDates}
@@ -688,7 +695,7 @@ export default function ServiceDetailPage() {
                     {selectedDates.length === 0 ? 'Pilih Tanggal Terlebih Dahulu' : 'Pesan Sekarang'}
                   </button>
                   <button 
-                    onClick={() => setShowChatModal(true)}
+                    onClick={handleContactVendor}
                     className="w-full border border-red-500 text-red-500 py-3 rounded-lg font-medium hover:bg-red-50 transition-colors flex items-center justify-center"
                   >
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -721,127 +728,54 @@ export default function ServiceDetailPage() {
 
       {/* Booking Confirmation Modal */}
       {showBookingModal && (
-        <div 
-          className="fixed inset-0 backdrop-blur-md bg-white/20 flex items-center justify-center z-50 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowBookingModal(false)
-              document.body.style.overflow = 'unset'
-            }
-          }}
-        >
-          <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-200">
-            <div className="p-6">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">Konfirmasi Booking</h2>
-                  <p className="text-gray-600">Pastikan detail booking Anda benar</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowBookingModal(false)
-                    document.body.style.overflow = 'unset'
-                  }}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Booking Summary */}
-              <div className="space-y-4 mb-6">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Ringkasan Booking</h3>
-                  
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Layanan:</span>
-                      <span className="font-medium text-right">{service.name}</span>
-                    </div>
-                    
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Vendor:</span>
-                      <span className="font-medium">{service.vendor.business_name}</span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Tanggal:</span>
-                      <span className="font-medium">{selectedDates.length} hari</span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Jumlah:</span>
-                      <span className="font-medium">{quantity}x</span>
-                    </div>
-
-                    <div className="border-t pt-2 mt-3">
-                      <div className="flex justify-between text-lg font-bold">
-                        <span>Total:</span>
-                        <span className="text-red-600">Rp {(service.price * quantity * selectedDates.length).toLocaleString('id-ID')}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Selected Dates Display */}
-                <div className="text-center">
-                  <p className="text-sm text-gray-600 mb-2">Tanggal yang dipilih:</p>
-                  <div className="flex flex-wrap gap-1 justify-center">
-                    {selectedDates.map(date => (
-                      <span key={date.toISOString()} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                        {date.toLocaleDateString('id-ID', { 
-                          day: 'numeric', 
-                          month: 'short' 
-                        })}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => {
-                    setShowBookingModal(false)
-                    document.body.style.overflow = 'unset'
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={handleBookingSubmit}
-                  disabled={bookingLoading}
-                  className={`flex-1 px-4 py-2 rounded-md font-medium transition-colors ${
-                    bookingLoading
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-red-500 text-white hover:bg-red-600'
-                  }`}
-                >
-                  {bookingLoading ? 'Memproses...' : 'Konfirmasi Booking'}
-                </button>
-              </div>
-
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                <p className="text-xs text-blue-800 text-center">
-                  <strong>Info:</strong> Setelah konfirmasi, vendor akan menghubungi Anda untuk detail lebih lanjut
-                </p>
-              </div>
+        <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Confirm Booking</h2>
+            <div className="space-y-3 text-gray-700">
+              <p><strong>Service:</strong> {service.name}</p>
+              <p><strong>Vendor:</strong> {service.vendor.business_name}</p>
+              <p><strong>Dates:</strong> {selectedDates.map(d => d.toLocaleDateString()).join(', ')}</p>
+              <p><strong>Quantity:</strong> {quantity}</p>
+              <p className="text-xl font-bold">
+                <strong>Total Price:</strong> {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(service.price * quantity)}
+              </p>
+            </div>
+            <div className="mt-8 flex justify-end gap-4">
+              <button
+                onClick={() => {
+                  setShowBookingModal(false)
+                  document.body.style.overflow = 'unset'
+                }}
+                disabled={bookingLoading}
+                className="px-6 py-2 border border-gray-300 text-gray-800 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBookingSubmit}
+                disabled={bookingLoading}
+                className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 flex items-center"
+              >
+                {bookingLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                    Processing...
+                  </>
+                ) : (
+                  'Confirm & Book'
+                )}
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* Chat Modal */}
-      {service && (
+      {showChatModal && service && (
         <ChatModal
           isOpen={showChatModal}
           onClose={() => setShowChatModal(false)}
-          vendorId={service.vendor.id}
+          vendorId={service.vendor.user_id}
           vendorName={service.vendor.business_name}
           serviceName={service.name}
         />

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/hooks/useAuth'
@@ -14,7 +14,7 @@ interface AvailabilityRecord {
   created_at?: string | null
   updated_at?: string | null
   vendor_id: string
-  time_slots?: any
+  time_slots?: Record<string, unknown> | null
 }
 
 export default function VendorAvailabilityPage() {
@@ -24,19 +24,7 @@ export default function VendorAvailabilityPage() {
   const [loading, setLoading] = useState(true)
   const [vendorId, setVendorId] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (isAuthenticated && profile) {
-      loadVendorData()
-    }
-  }, [isAuthenticated, profile])
-
-  useEffect(() => {
-    if (vendorId) {
-      loadAvailabilityData()
-    }
-  }, [currentMonth, vendorId])
-
-  const loadVendorData = async () => {
+  const loadVendorData = useCallback(async () => {
     if (!user) return
 
     try {
@@ -52,9 +40,9 @@ export default function VendorAvailabilityPage() {
     } catch (error) {
       console.error('Error loading vendor data:', error)
     }
-  }
+  }, [user])
 
-  const loadAvailabilityData = async () => {
+  const loadAvailabilityData = useCallback(async () => {
     if (!vendorId) return
 
     try {
@@ -76,7 +64,19 @@ export default function VendorAvailabilityPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [vendorId, currentMonth])
+
+  useEffect(() => {
+    if (isAuthenticated && profile) {
+      loadVendorData()
+    }
+  }, [isAuthenticated, profile, loadVendorData])
+
+  useEffect(() => {
+    if (vendorId) {
+      loadAvailabilityData()
+    }
+  }, [currentMonth, vendorId, loadAvailabilityData])
 
   const getDateStatus = (date: Date): 'available' | 'booked' | 'blocked' => {
     const dateString = date.toISOString().split('T')[0]
@@ -172,7 +172,7 @@ export default function VendorAvailabilityPage() {
     const month = currentMonth.getMonth()
     
     const firstDay = new Date(year, month, 1)
-    const lastDay = new Date(year, month + 1, 0)
+    new Date(year, month + 1, 0)
     const startDate = new Date(firstDay)
     startDate.setDate(startDate.getDate() - firstDay.getDay())
     

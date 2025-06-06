@@ -5,7 +5,7 @@
 // Track error count untuk mencegah infinite loops
 const errorCounts = new Map<string, number>()
 
-export const handleAuthError = (error: any, context: string = 'unknown') => {
+export const handleAuthError = (error: Error | null, context: string = 'unknown') => {
   const errorKey = `${context}-${error?.name || 'unknown'}`
   const currentCount = errorCounts.get(errorKey) || 0
   
@@ -16,7 +16,6 @@ export const handleAuthError = (error: any, context: string = 'unknown') => {
   
   // Jika error sudah terjadi > 5x dalam 5 menit, stop processing
   if (currentCount >= 5) {
-    console.warn(`Too many ${errorKey} errors, stopping to prevent loop`)
     return false
   }
   
@@ -24,25 +23,23 @@ export const handleAuthError = (error: any, context: string = 'unknown') => {
   
   // Handle specific auth errors
   if (error?.name === 'AuthSessionMissingError') {
-    console.log('Auth session missing - user not logged in')
     return false // Jangan retry
   }
   
   if (error?.message?.includes('refresh_token')) {
-    console.log('Refresh token invalid - clearing auth state')
     return false // Jangan retry
   }
   
   return true // OK untuk retry
 }
 
-export const isAuthError = (error: any): boolean => {
-  return error?.name?.includes('Auth') || 
+export const isAuthError = (error: Error | null): boolean => {
+  return !!(error?.name?.includes('Auth') || 
          error?.message?.includes('session') ||
-         error?.message?.includes('token')
+         error?.message?.includes('token'))
 }
 
-export const shouldRetryError = (error: any, context: string = 'unknown'): boolean => {
+export const shouldRetryError = (error: Error | null, context: string = 'unknown'): boolean => {
   // Jangan retry auth errors
   if (isAuthError(error)) {
     return handleAuthError(error, context)

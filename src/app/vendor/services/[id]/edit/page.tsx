@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import Image from 'next/image'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
@@ -86,25 +87,9 @@ export default function EditServicePage() {
         URL.revokeObjectURL(image.preview)
       })
     }
-  }, [])
+  }, [uploadedImages])
 
-  useEffect(() => {
-    if (authLoading) return
-
-    if (!isAuthenticated) {
-      router.push('/login')
-      return
-    }
-
-    if (profile?.preferred_role !== 'vendor') {
-      router.push('/dashboard')
-      return
-    }
-
-    loadServiceData()
-  }, [isAuthenticated, profile, authLoading, serviceId])
-
-  const loadServiceData = async () => {
+  const loadServiceData = useCallback(async () => {
     if (!user || !serviceId) return
 
     try {
@@ -146,15 +131,15 @@ export default function EditServicePage() {
         price: service.price?.toString() || '',
         duration: service.duration?.toString() || '',
         service_type: (service.service_type as 'package' | 'individual') || 'package',
-        includes: Array.isArray(service.includes) ? service.includes as string[] : [],
-        excludes: Array.isArray(service.excludes) ? service.excludes as string[] : [],
+        includes: Array.isArray(service.includes) ? (service.includes as unknown[]).filter((i): i is string => typeof i === 'string') : [],
+        excludes: Array.isArray(service.excludes) ? (service.excludes as unknown[]).filter((i): i is string => typeof i === 'string') : [],
         terms_conditions: service.terms_conditions || '',
         cancellation_policy: service.cancellation_policy || '',
         max_revisions: service.max_revisions?.toString() || '3',
         delivery_time: service.delivery_time?.toString() || '14',
         advance_booking_days: service.advance_booking_days?.toString() || '7',
         max_guests: service.max_guests?.toString() || '',
-        images: Array.isArray((service as any).images) ? (service as any).images as string[] : [],
+        images: Array.isArray(service.images) ? (service.images as unknown[]).filter((i): i is string => typeof i === 'string') : [],
         is_active: service.is_active ?? true,
         is_featured: service.is_featured ?? false
       }
@@ -163,8 +148,8 @@ export default function EditServicePage() {
       setFormData(serviceFormData)
 
       // Set existing images
-      if ((service as any).images && Array.isArray((service as any).images) && (service as any).images.length > 0) {
-        const existingImgs = ((service as any).images as string[]).map((url: string) => ({
+      if (service.images && Array.isArray(service.images) && service.images.length > 0) {
+        const existingImgs = (service.images as string[]).map((url: string) => ({
           url,
           isExisting: true
         }))
@@ -178,7 +163,23 @@ export default function EditServicePage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user, serviceId, router])
+
+  useEffect(() => {
+    if (authLoading) return
+
+    if (!isAuthenticated) {
+      router.push('/login')
+      return
+    }
+
+    if (profile?.preferred_role !== 'vendor') {
+      router.push('/dashboard')
+      return
+    }
+
+    loadServiceData()
+  }, [isAuthenticated, profile, authLoading, serviceId, loadServiceData, router])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
@@ -722,9 +723,11 @@ export default function EditServicePage() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {existingImages.map((image, index) => (
                       <div key={index} className="relative">
-                        <img
+                        <Image
                           src={image.url}
                           alt={`Existing ${index + 1}`}
+                          width={128}
+                          height={128}
                           className="w-full h-32 object-cover rounded-lg"
                         />
                         <button
@@ -779,9 +782,11 @@ export default function EditServicePage() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {uploadedImages.map((image, index) => (
                       <div key={index} className="relative">
-                        <img
+                        <Image
                           src={image.preview}
                           alt={`Preview ${index + 1}`}
+                          width={128}
+                          height={128}
                           className="w-full h-32 object-cover rounded-lg"
                         />
                         {image.uploading && (

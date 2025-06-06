@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
@@ -70,7 +71,32 @@ export default function CreateServicePage() {
         URL.revokeObjectURL(image.preview)
       })
     }
-  }, [])
+  }, [uploadedImages])
+
+  const loadVendorInfo = useCallback(async () => {
+    if (!user) return
+
+    try {
+      const { data: vendor, error } = await supabase
+        .from('vendors')
+        .select('id, business_name, category_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (error) {
+        console.error('Error loading vendor info:', error)
+        alert('Anda belum terdaftar sebagai vendor. Silakan lengkapi profil vendor terlebih dahulu.')
+        router.push('/dashboard')
+        return
+      }
+
+      setVendorInfo(vendor)
+    } catch (error) {
+      console.error('Error:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [user, router])
 
   useEffect(() => {
     // Debug logs (hapus di production)
@@ -97,32 +123,7 @@ export default function CreateServicePage() {
 
     console.log('✅ Auth check passed, loading vendor info')
     loadVendorInfo()
-  }, [isAuthenticated, profile, authLoading]) // Hapus router dari dependencies
-
-  const loadVendorInfo = async () => {
-    if (!user) return
-
-    try {
-      const { data: vendor, error } = await supabase
-        .from('vendors')
-        .select('id, business_name, category_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (error) {
-        console.error('Error loading vendor info:', error)
-        alert('Anda belum terdaftar sebagai vendor. Silakan lengkapi profil vendor terlebih dahulu.')
-        router.push('/dashboard')
-        return
-      }
-
-      setVendorInfo(vendor)
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  }, [isAuthenticated, profile, authLoading, router, loadVendorInfo])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
@@ -293,81 +294,51 @@ export default function CreateServicePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!vendorInfo) return
-
-    setSubmitting(true)
+    if (!vendorInfo) {
+      alert('Informasi vendor tidak ditemukan.')
+      return
+    }
 
     try {
-      // Validate required fields
-      if (!formData.name || !formData.description || !formData.price) {
-        alert('Nama paket, deskripsi, dan harga harus diisi!')
-        return
+      const imageUrls = await uploadAllImages()
+      
+      const servicePayload = {
+        ...formData,
+        price: parseFloat(formData.price) || 0,
+        duration: parseInt(formData.duration, 10) || null,
+        max_revisions: parseInt(formData.max_revisions, 10) || 0,
+        delivery_time: parseInt(formData.delivery_time, 10) || 0,
+        advance_booking_days: parseInt(formData.advance_booking_days, 10) || 0,
+        max_guests: parseInt(formData.max_guests, 10) || null,
+        images: imageUrls,
+        vendor_id: vendorInfo.id,
+        category_id: vendorInfo.category_id,
+        is_active: true,
+        is_featured: false
       }
 
-      if (uploadedImages.length === 0) {
-        alert('Minimal upload 1 foto portfolio untuk menarik klien!')
-        return
-      }
-
-      const price = parseFloat(formData.price)
-      if (isNaN(price) || price <= 0) {
-        alert('Harga harus berupa angka yang valid!')
-        return
-      }
-
-      // Upload images first
-      let imageUrls: string[] = []
-      if (uploadedImages.length > 0) {
-        try {
-          imageUrls = await uploadAllImages()
-          if (imageUrls.length < uploadedImages.length) {
-            alert('Beberapa gambar gagal diupload. Periksa dan coba lagi.')
-            return
-          }
-        } catch (error) {
-          console.error('Error uploading images:', error)
-          alert('Gagal mengupload gambar. Silakan coba lagi.')
-          return
-        }
-      }
-
-      // Create service
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('services')
-        .insert({
-          vendor_id: vendorInfo.id,
-          name: formData.name,
-          description: formData.description,
-          price: price,
-          duration: parseInt(formData.duration) || null,
-          service_type: formData.service_type,
-          includes: formData.includes,
-          excludes: formData.excludes,
-          terms_conditions: formData.terms_conditions || null,
-          cancellation_policy: formData.cancellation_policy || null,
-          max_revisions: parseInt(formData.max_revisions) || null,
-          delivery_time: parseInt(formData.delivery_time) || null,
-          advance_booking_days: parseInt(formData.advance_booking_days) || 7,
-          max_guests: parseInt(formData.max_guests) || null,
-          images: imageUrls,
-          is_active: true,
-          is_featured: false
-        })
-        .select()
-        .single()
+        .insert(servicePayload)
 
       if (error) {
         console.error('Error creating service:', error)
-        alert('Terjadi kesalahan saat membuat paket layanan: ' + error.message)
-        return
+        if (error instanceof Error) {
+          alert(`Gagal membuat layanan: ${error.message}`)
+        } else {
+          alert('Gagal membuat layanan: Terjadi kesalahan tidak terduga.')
+        }
+      } else {
+        alert('Layanan berhasil dibuat!')
+        router.push('/vendor/services')
       }
-
-      alert('Paket layanan berhasil dibuat!')
-      router.push('/vendor/dashboard')
-
     } catch (error) {
-      console.error('Error:', error)
-      alert('Terjadi kesalahan yang tidak terduga')
+      console.error('Error creating service:', error)
+      if (error instanceof Error) {
+        alert(`Gagal membuat layanan: ${error.message}`)
+      } else {
+        alert('Gagal membuat layanan: Terjadi kesalahan tidak terduga.')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -537,9 +508,11 @@ export default function CreateServicePage() {
                     {uploadedImages.map((imageData, index) => (
                       <div key={index} className="relative group">
                         <div className="aspect-square rounded-lg overflow-hidden bg-gray-100">
-                          <img
+                          <Image
                             src={imageData.preview}
                             alt={`Preview ${index + 1}`}
+                            width={200}
+                            height={200}
                             className="w-full h-full object-cover"
                           />
                           {imageData.uploading && (

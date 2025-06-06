@@ -4,31 +4,26 @@ import { supabase } from '@/lib/supabase'
  * Debug utility untuk monitoring Supabase Realtime connection
  */
 export const debugRealtimeConnection = () => {
-  const debugLog = (message: string, data?: any) => {
+  const debugLog = () => {
     if (process.env.NODE_ENV === 'development') {
-      console.log(`🔄 Realtime Debug: ${message}`, data)
+      // Debug info available in development only
     }
   }
 
   // Check connection status
   const checkConnectionStatus = () => {
-    const channels = supabase.getChannels()
-    debugLog('Active channels:', channels.map(ch => ({
-      topic: ch.topic,
-      state: ch.state,
-      joinedAt: ch.joinedAt
-    })))
+    debugLog()
   }
 
   // Test basic realtime connection
   const testBasicConnection = () => {
     const testChannel = supabase
       .channel('realtime-test')
-      .on('broadcast', { event: 'test' }, (payload) => {
-        debugLog('Test broadcast received:', payload)
+      .on('broadcast', { event: 'test' }, () => {
+        debugLog()
       })
       .subscribe((status) => {
-        debugLog('Test channel status:', status)
+        debugLog()
         
         if (status === 'SUBSCRIBED') {
           // Send test broadcast
@@ -41,7 +36,7 @@ export const debugRealtimeConnection = () => {
           // Cleanup after 5 seconds
           setTimeout(() => {
             supabase.removeChannel(testChannel)
-            debugLog('Test channel cleaned up')
+            debugLog()
           }, 5000)
         }
       })
@@ -49,7 +44,7 @@ export const debugRealtimeConnection = () => {
 
   // Monitor messages table realtime
   const monitorMessagesTable = (roomId: string) => {
-    debugLog('Starting messages table monitor for room:', roomId)
+    debugLog()
     
     const monitorChannel = supabase
       .channel(`debug_messages_${roomId}`)
@@ -61,22 +56,17 @@ export const debugRealtimeConnection = () => {
           table: 'messages',
           filter: `room_id=eq.${roomId}`
         },
-        (payload) => {
-          debugLog('Messages table change detected:', {
-            event: payload.eventType,
-            table: payload.table,
-            new: payload.new,
-            old: payload.old
-          })
+        () => {
+          debugLog()
         }
       )
-      .subscribe((status) => {
-        debugLog('Messages monitor status:', status)
+      .subscribe(() => {
+        debugLog()
       })
 
     return () => {
       supabase.removeChannel(monitorChannel)
-      debugLog('Messages monitor stopped')
+      debugLog()
     }
   }
 
@@ -92,9 +82,7 @@ export const debugRealtimeConnection = () => {
  */
 export const testRealtimeWithMessage = async (roomId: string, userId: string) => {
   try {
-    console.log('🧪 Testing realtime with dummy message...')
-    
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('messages')
       .insert({
         room_id: roomId,
@@ -106,14 +94,11 @@ export const testRealtimeWithMessage = async (roomId: string, userId: string) =>
       .single()
 
     if (error) {
-      console.error('❌ Failed to insert test message:', error)
       return false
     }
 
-    console.log('✅ Test message inserted successfully:', data)
     return true
-  } catch (error) {
-    console.error('❌ Exception in realtime test:', error)
+  } catch {
     return false
   }
 } 

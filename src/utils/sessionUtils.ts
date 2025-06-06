@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { Session } from '@supabase/supabase-js'
 import { shouldRetryError, isAuthError } from './errorBoundary'
 
 /**
@@ -16,7 +17,6 @@ export const clearSessionCache = () => {
         }
       }
       keysToRemove.forEach(key => {
-        console.log('🧹 Clearing session key:', key)
         localStorage.removeItem(key)
       })
 
@@ -29,12 +29,11 @@ export const clearSessionCache = () => {
         }
       }
       sessionKeysToRemove.forEach(key => {
-        console.log('🧹 Clearing session storage key:', key)
         sessionStorage.removeItem(key)
       })
     }
-  } catch (error) {
-    console.warn('Error clearing session cache:', error)
+  } catch {
+    // Error handled silently
   }
 }
 
@@ -55,7 +54,6 @@ export const clearSnapmeSessions = () => {
       }
       
       keysToRemove.forEach(key => {
-        console.log('🧹 Removing old snapme session:', key)
         localStorage.removeItem(key)
       })
       
@@ -69,18 +67,15 @@ export const clearSnapmeSessions = () => {
       }
       
       sessionKeysToRemove.forEach(key => {
-        console.log('🧹 Removing old snapme session storage:', key)
         sessionStorage.removeItem(key)
       })
 
       if (keysToRemove.length > 0 || sessionKeysToRemove.length > 0) {
-        console.log('✅ Cleared old snapme sessions, total removed:', keysToRemove.length + sessionKeysToRemove.length)
         return true
       }
     }
     return false
-  } catch (error) {
-    console.warn('Error clearing snapme sessions:', error)
+  } catch {
     return false
   }
 }
@@ -94,18 +89,15 @@ export const refreshSession = async () => {
     const { data: { session: currentSession } } = await supabase.auth.getSession()
     
     if (!currentSession) {
-      console.log('No session to refresh')
       return { success: false, error: new Error('No session to refresh') }
     }
 
     const { data, error } = await supabase.auth.refreshSession()
     if (error) {
-      console.error('Error refreshing session:', error)
       return { success: false, error }
     }
     return { success: true, data }
   } catch (error) {
-    console.error('Error refreshing session:', error)
     return { success: false, error }
   }
 }
@@ -122,8 +114,7 @@ export const isSessionExpired = async () => {
     
     const now = Math.floor(Date.now() / 1000)
     return session.expires_at ? now >= session.expires_at : false
-  } catch (error) {
-    console.error('Error checking session expiry:', error)
+  } catch {
     return true
   }
 }
@@ -131,7 +122,7 @@ export const isSessionExpired = async () => {
 /**
  * Safe session getter dengan retry
  */
-export const getSafeSession = async (retryCount = 0): Promise<any> => {
+export const getSafeSession = async (retryCount = 0): Promise<Session | null> => {
   try {
     const { data: { session }, error } = await supabase.auth.getSession()
     
@@ -145,7 +136,6 @@ export const getSafeSession = async (retryCount = 0): Promise<any> => {
       
       // Jika auth error, return null daripada throw
       if (isAuthError(error)) {
-        console.log('Auth error in getSafeSession, returning null')
         return null
       }
       
@@ -153,8 +143,7 @@ export const getSafeSession = async (retryCount = 0): Promise<any> => {
     }
     
     return session
-  } catch (error) {
-    console.error('Error getting session:', error)
+  } catch {
     return null
   }
 }
@@ -167,7 +156,6 @@ export const initializeSession = async () => {
   const hadOldSessions = clearSnapmeSessions()
   
   if (hadOldSessions) {
-    console.log('🔄 Old sessions cleared, reinitializing auth...')
     // Refresh the page to reinitialize auth properly
     if (typeof window !== 'undefined') {
       window.location.reload()
@@ -176,22 +164,10 @@ export const initializeSession = async () => {
   }
 
   try {
-    const { data: { session }, error } = await supabase.auth.getSession()
+    const { data: { session } } = await supabase.auth.getSession()
     
-    if (error) {
-      console.error('Error initializing session:', error)
-      return null
-    }
-
-    if (session) {
-      console.log('✅ WedShoot session initialized:', session.user.email)
-    } else {
-      console.log('ℹ️ No active session found')
-    }
-
     return session
-  } catch (error) {
-    console.error('Exception in initializeSession:', error)
+  } catch {
     return null
   }
 }
@@ -203,16 +179,10 @@ export const debugSessionState = async () => {
   if (process.env.NODE_ENV === 'production') return
   
   try {
-    const session = await getSafeSession()
-    console.log('🔍 Session Debug:', {
-      hasSession: !!session,
-      userId: session?.user?.id,
-      email: session?.user?.email,
-      expiresAt: session?.expires_at,
-      isExpired: session ? Math.floor(Date.now() / 1000) >= (session.expires_at || 0) : 'no session'
-    })
-  } catch (error) {
-    console.error('Error debugging session:', error)
+    await getSafeSession()
+    // Debug info available in development only
+  } catch {
+    // Error handled silently
   }
 }
 
@@ -222,7 +192,6 @@ export const debugSessionState = async () => {
 export const resetApplication = () => {
   try {
     if (typeof window !== 'undefined') {
-      console.log('🔄 Resetting application completely...')
       
       // Clear all localStorage
       const localStorageKeys = []
@@ -231,7 +200,6 @@ export const resetApplication = () => {
         if (key) localStorageKeys.push(key)
       }
       localStorageKeys.forEach(key => {
-        console.log('🧹 Removing localStorage key:', key)
         localStorage.removeItem(key)
       })
 
@@ -242,7 +210,6 @@ export const resetApplication = () => {
         if (key) sessionStorageKeys.push(key)
       }
       sessionStorageKeys.forEach(key => {
-        console.log('🧹 Removing sessionStorage key:', key)
         sessionStorage.removeItem(key)
       })
 
@@ -250,8 +217,6 @@ export const resetApplication = () => {
       document.cookie.split(";").forEach(function(c) { 
         document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
       })
-
-      console.log('✅ Application reset complete. Reloading page...')
       
       // Reload page after clearing everything
       window.location.reload()
@@ -259,8 +224,7 @@ export const resetApplication = () => {
       return true
     }
     return false
-  } catch (error) {
-    console.error('Error resetting application:', error)
+  } catch {
     return false
   }
 }
@@ -270,22 +234,5 @@ export const resetApplication = () => {
  */
 export const debugStorageKeys = () => {
   if (typeof window === 'undefined') return
-
-  console.log('📋 Current Storage Keys:')
-  
-  console.log('localStorage:')
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (key) {
-      console.log(`  - ${key}`)
-    }
-  }
-  
-  console.log('sessionStorage:')
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const key = sessionStorage.key(i)
-    if (key) {
-      console.log(`  - ${key}`)
-    }
-  }
+  // Debug info available in development only
 } 

@@ -292,7 +292,7 @@ export type Database = {
           read_at: string | null
           delivered_at: string | null
           reply_to_message_id: string | null
-          service_preview: any | null
+          service_preview: Json | null
           created_at: string
           updated_at: string
         }
@@ -308,7 +308,7 @@ export type Database = {
           read_at?: string | null
           delivered_at?: string | null
           reply_to_message_id?: string | null
-          service_preview?: any | null
+          service_preview?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -324,7 +324,7 @@ export type Database = {
           read_at?: string | null
           delivered_at?: string | null
           reply_to_message_id?: string | null
-          service_preview?: any | null
+          service_preview?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -962,7 +962,7 @@ export interface Message {
   read_at: string | null
   delivered_at: string | null
   reply_to_message_id: string | null
-  service_preview: any | null
+  service_preview: Json | null
   created_at: string
   updated_at: string
   sender?: {
