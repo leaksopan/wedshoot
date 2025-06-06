@@ -322,6 +322,16 @@ export const useChat = () => {
       
       console.log('Inserting message to database...')
       
+      // Debug auth status di development
+      if (process.env.NODE_ENV === 'development') {
+        const session = await supabase.auth.getSession()
+        console.log('Auth status:', {
+          hasSession: !!session.data.session,
+          hasUser: !!session.data.session?.user,
+          error: session.error?.message
+        })
+      }
+      
       const { data, error } = await supabase
         .from('messages')
         .insert({

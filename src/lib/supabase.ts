@@ -5,6 +5,15 @@ import { Database } from '@/types/database'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://rufdjysbrykvrtxyqxtg.supabase.co'
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1ZmRqeXNicnlrdnJ0eHlxeHRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxMDg5MjUsImV4cCI6MjA2NDY4NDkyNX0.EAhuwH-E0WA-Ocl_JLdNQNt8lI9fq_nfpxZhyOHw3-I'
 
+// Debug API key untuk development
+if (process.env.NODE_ENV === 'development') {
+  console.log('Supabase Config:', {
+    url: supabaseUrl,
+    keyLength: supabaseAnonKey?.length,
+    hasKey: !!supabaseAnonKey
+  })
+}
+
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
@@ -25,6 +34,17 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     },
     // Optimasi untuk production
     fetch: (url, options = {}) => {
+      // Debug request untuk development
+      if (process.env.NODE_ENV === 'development') {
+        const urlString = typeof url === 'string' ? url : url.toString()
+        console.log('Supabase request:', {
+          url: urlString.substring(0, 80) + '...',
+          method: options.method || 'GET',
+          hasApiKey: !!(options.headers as Record<string, unknown>)?.apikey,
+          hasAuth: !!(options.headers as Record<string, unknown>)?.Authorization
+        })
+      }
+      
       return fetch(url, {
         ...options,
         // Add connection timeout untuk mencegah hanging requests
