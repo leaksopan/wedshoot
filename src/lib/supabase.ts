@@ -22,6 +22,14 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
       'X-Client-Info': 'wedshoot@1.0.0',
       'Accept': 'application/json',
       'Content-Type': 'application/json'
+    },
+    // Optimasi untuk production
+    fetch: (url, options = {}) => {
+      return fetch(url, {
+        ...options,
+        // Add connection timeout untuk mencegah hanging requests
+        signal: AbortSignal.timeout(30000), // 30 second timeout
+      })
     }
   },
   // Add connection options untuk stabilitas

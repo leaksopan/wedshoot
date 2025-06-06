@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "build:analyze": "ANALYZE=true next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "perf:monitor": "node scripts/performance-check.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.10",

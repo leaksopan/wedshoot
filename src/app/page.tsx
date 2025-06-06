@@ -58,7 +58,7 @@ interface Vendor {
 }
 
 export default function Home() {
-  const { isAuthenticated, profile, loading: authLoading } = useAuth()
+  const { isAuthenticated, profile } = useAuth()
   const [categories, setCategories] = useState<VendorCategory[]>([])
   const [featuredServices, setFeaturedServices] = useState<Service[]>([])
   const [topVendors, setTopVendors] = useState<Vendor[]>([])
@@ -222,7 +222,8 @@ export default function Home() {
     }
   }
 
-  if (loading || authLoading) {
+  // Jangan tunggu authLoading untuk home page, karena home page bisa diakses tanpa auth
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">

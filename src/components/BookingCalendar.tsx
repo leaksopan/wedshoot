@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getCachedData, getCacheKey } from '@/utils/serviceCache'
 
 interface BookingCalendarProps {
   vendorId: string
@@ -31,36 +32,55 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
       const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
       const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
 
-      // Get vendor availability settings (blocked dates)
-      const { data: availabilityData } = await supabase
-        .from('availability')
-        .select('date, status')
-        .eq('vendor_id', vendorId)
-        .gte('date', startOfMonth.toISOString().split('T')[0])
-        .lte('date', endOfMonth.toISOString().split('T')[0])
+      const monthKey = `${currentMonth.getFullYear()}-${currentMonth.getMonth()}`
 
-      // Get existing confirmed bookings for this vendor (booked dates)
-      const { data: bookingsData } = await supabase
-        .from('bookings')
-        .select('booking_dates')
-        .eq('vendor_id', vendorId)
-        .in('status', ['confirmed', 'completed'])
+      // Optimized: Parallel queries dengan caching
+      const [availabilityResult, bookingsResult] = await Promise.all([
+        // Get vendor availability settings (blocked dates) dengan cache
+        getCachedData(
+          getCacheKey.availability(vendorId, monthKey),
+          async () => {
+            const result = await supabase
+              .from('availability')
+              .select('date, status')
+              .eq('vendor_id', vendorId)
+              .gte('date', startOfMonth.toISOString().split('T')[0])
+              .lte('date', endOfMonth.toISOString().split('T')[0])
+            return result.data || []
+          },
+          60 * 1000 // Cache for 1 minute
+        ),
+
+        // Get existing confirmed bookings dengan cache
+        getCachedData(
+          getCacheKey.bookings(vendorId, monthKey),
+          async () => {
+            const result = await supabase
+              .from('bookings')
+              .select('booking_dates')
+              .eq('vendor_id', vendorId)
+              .in('status', ['confirmed', 'completed'])
+            return result.data || []
+          },
+          30 * 1000 // Cache for 30 seconds (bookings change more frequently)
+        )
+      ])
+
+      // Process availability data
+      const filteredAvailability = (availabilityResult || []).map(item => ({
+        date: item.date,
+        status: (item.status as 'available' | 'booked' | 'blocked') || 'available'
+      }))
 
       // Flatten all booking dates from all confirmed bookings
       const allBookedDates: string[] = []
-      if (bookingsData) {
-        bookingsData.forEach(booking => {
+      if (bookingsResult) {
+        bookingsResult.forEach(booking => {
           if (booking.booking_dates) {
             allBookedDates.push(...booking.booking_dates)
           }
         })
       }
-
-      // Filter availability data to ensure proper types
-      const filteredAvailability = (availabilityData || []).map(item => ({
-        date: item.date,
-        status: (item.status as 'available' | 'booked' | 'blocked') || 'available'
-      }))
 
       setAvailability(filteredAvailability)
       setBookedDates(allBookedDates)

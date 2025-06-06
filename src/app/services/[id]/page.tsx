@@ -1,14 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { AppLayout } from '@/components/AppLayout'
-import BookingCalendar from '@/components/BookingCalendar'
-import ChatModal from '@/components/ChatModal'
 import { useAuth } from '@/hooks/useAuth'
+import { getCachedData, getCacheKey } from '@/utils/serviceCache'
+import { perfMonitor, trackDatabaseQuery } from '@/utils/performance'
+
+// Lazy load heavy components untuk mengurangi initial bundle size
+const BookingCalendar = lazy(() => import('@/components/BookingCalendar'))
+const ChatModal = lazy(() => import('@/components/ChatModal'))
 
 interface ServiceDetail {
   id: string
@@ -145,44 +149,67 @@ export default function ServiceDetailPage() {
 
   const loadServiceDetail = useCallback(async () => {
     try {
-      // Get service data - tidak bergantung pada authentication
-      const { data: serviceData, error: serviceError } = await supabase
-        .from('services')
-        .select('*')
-        .eq('id', serviceId)
-        .eq('is_active', true)
-        .single()
+      perfMonitor.start('loadServiceDetail', { serviceId })
 
-      if (serviceError || !serviceData) {
-        console.error('Service not found:', serviceError)
+      // Use caching untuk mengurangi database calls
+      const serviceData = await getCachedData(
+        getCacheKey.service(serviceId),
+        async () => {
+          return trackDatabaseQuery('service-detail', async () => {
+            const { data, error } = await supabase
+              .from('services')
+              .select(`
+                *,
+                vendor:vendors!services_vendor_id_fkey (
+                  id,
+                  business_name,
+                  location,
+                  average_rating,
+                  total_reviews,
+                  user_id,
+                  category:vendor_categories!vendors_category_id_fkey (
+                    name,
+                    slug
+                  )
+                )
+              `)
+              .eq('id', serviceId)
+              .eq('is_active', true)
+              .single()
+
+            if (error || !data) {
+              throw new Error(error?.message || 'Service not found')
+            }
+
+            return data
+          })
+        },
+        2 * 60 * 1000 // Cache for 2 minutes
+      )
+
+      if (!serviceData) {
+        console.error('Service not found')
         router.push('/services')
         return
       }
 
-      // Get vendor data
-      const { data: vendorData } = await supabase
-        .from('vendors')
-        .select(`
-          id,
-          business_name,
-          location,
-          average_rating,
-          total_reviews,
-          user_id,
-          category_id
-        `)
-        .eq('id', serviceData.vendor_id)
-        .single()
+      // Transform data dengan null checks yang lebih baik
+      const serviceRecord = serviceData as ServiceFromDB & {
+        vendor: {
+          id: string
+          business_name: string
+          location: string | null
+          average_rating: number
+          total_reviews: number
+          user_id: string
+          category: {
+            name: string
+            slug: string
+          }
+        }
+      }
 
-      // Get category data
-      const { data: categoryData } = await supabase
-        .from('vendor_categories')
-        .select('name, slug')
-        .eq('id', vendorData?.category_id || '')
-        .single()
-
-      if (vendorData && categoryData) {
-        const serviceRecord = serviceData as ServiceFromDB
+      if (serviceRecord.vendor && serviceRecord.vendor.category) {
         const transformedService: ServiceDetail = {
           id: serviceRecord.id,
           name: serviceRecord.name,
@@ -199,22 +226,25 @@ export default function ServiceDetailPage() {
           max_guests: serviceRecord.max_guests,
           images: serviceRecord.images || [],
           vendor: {
-            id: vendorData.id,
-            business_name: vendorData.business_name,
-            location: vendorData.location,
-            average_rating: parseFloat(vendorData.average_rating?.toString() || '0'),
-            total_reviews: vendorData.total_reviews,
-            user_id: vendorData.user_id,
+            id: serviceRecord.vendor.id,
+            business_name: serviceRecord.vendor.business_name,
+            location: serviceRecord.vendor.location,
+            average_rating: parseFloat(serviceRecord.vendor.average_rating?.toString() || '0'),
+            total_reviews: serviceRecord.vendor.total_reviews,
+            user_id: serviceRecord.vendor.user_id,
           },
           category: {
-            name: categoryData.name,
-            slug: categoryData.slug,
+            name: serviceRecord.vendor.category.name,
+            slug: serviceRecord.vendor.category.slug,
           },
         }
         setService(transformedService)
       }
+
+      perfMonitor.end('loadServiceDetail')
     } catch (error) {
       console.error('Error loading service detail:', error)
+      perfMonitor.end('loadServiceDetail')
     } finally {
       setLoading(false)
     }
@@ -432,6 +462,9 @@ export default function ServiceDetailPage() {
                   height={280}
                   className="w-full h-full object-contain cursor-pointer transition-opacity duration-300 bg-gray-100"
                   onClick={() => openLightbox(lightboxIndex)}
+                  priority={lightboxIndex === 0} // Prioritas untuk gambar pertama
+                  placeholder="blur"
+                  blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R+Rj5m4xVvEH1Toi/d1a"
                 />
 
                 {/* Navigation Arrows */}
@@ -650,11 +683,24 @@ export default function ServiceDetailPage() {
                 {/* Calendar */}
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-3">Pilih Tanggal</h3>
-                  <BookingCalendar
-                    vendorId={service.vendor.id}
-                    selectedDates={selectedDates}
-                    onDatesChange={setSelectedDates}
-                  />
+                  <Suspense fallback={
+                    <div className="w-full bg-white rounded-lg border border-gray-200 p-6">
+                      <div className="animate-pulse">
+                        <div className="h-6 bg-gray-200 rounded mb-4"></div>
+                        <div className="grid grid-cols-7 gap-2">
+                          {Array.from({ length: 42 }).map((_, i) => (
+                            <div key={i} className="h-10 bg-gray-200 rounded"></div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  }>
+                    <BookingCalendar
+                      vendorId={service.vendor.id}
+                      selectedDates={selectedDates}
+                      onDatesChange={setSelectedDates}
+                    />
+                  </Suspense>
                 </div>
 
                 {/* Selected Dates Summary */}
@@ -772,13 +818,21 @@ export default function ServiceDetailPage() {
 
       {/* Chat Modal */}
       {showChatModal && service && (
-        <ChatModal
-          isOpen={showChatModal}
-          onClose={() => setShowChatModal(false)}
-          vendorId={service.vendor.user_id}
-          vendorName={service.vendor.business_name}
-          serviceName={service.name}
-        />
+        <Suspense fallback={
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+            <div className="bg-white rounded-xl w-full max-w-lg h-[600px] flex items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+            </div>
+          </div>
+        }>
+          <ChatModal
+            isOpen={showChatModal}
+            onClose={() => setShowChatModal(false)}
+            vendorId={service.vendor.user_id}
+            vendorName={service.vendor.business_name}
+            serviceName={service.name}
+          />
+        </Suspense>
       )}
     </AppLayout>
   )

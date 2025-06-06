@@ -53,7 +53,7 @@ export const useAuth = () => {
     }
   }
 
-  // Initialize auth state dengan session utilities
+  // Initialize auth state dengan session utilities - OPTIMIZED
   const initializeAuth = useCallback(async () => {
     try {
       setAuthState(prev => ({ ...prev, loading: true, error: null }))
@@ -61,14 +61,14 @@ export const useAuth = () => {
       // Clear old snapme sessions first
       clearSnapmeSessions()
 
-      // Debug session state di development
+      // Skip debug in production untuk performa
       if (process.env.NODE_ENV === 'development') {
         await debugSessionState()
       }
 
       // Initialize session dengan error recovery
       const session = await initializeSession()
-      
+
       // Jika tidak ada session, set state ke not authenticated (normal condition)
       if (!session) {
         setAuthState({
@@ -97,47 +97,42 @@ export const useAuth = () => {
 
       // Session valid dengan user
       const authUser = convertToAuthUser(session.user)
-      
-      // Fetch profile dengan enhanced error handling
-      let profile = null
-      try {
-        profile = await fetchUserProfile(session.user.id)
-        
-        // Jika profile tidak ditemukan, log untuk debugging
-        if (!profile) {
-          console.warn(`No profile found for user ${session.user.id}, this might be normal for new users`)
-        }
-      } catch (profileError) {
-        console.warn('Failed to fetch profile, continuing without it:', profileError)
-        
-        // Schedule retry untuk profile fetch setelah auth state stable
-        setTimeout(async () => {
-          try {
-            const retryProfile = await fetchUserProfile(session.user.id)
-            if (retryProfile) {
-              setAuthState(prev => ({ ...prev, profile: retryProfile }))
-            }
-          } catch (retryError) {
-            console.warn('Profile fetch retry in initializeAuth failed:', retryError)
-          }
-        }, 1000)
-      }
 
+      // Set authenticated state first untuk faster UI response
       setAuthState({
         isAuthenticated: true,
         user: authUser,
-        profile,
+        profile: null, // Profile akan di-load async
         loading: false,
         error: null
       })
 
+      // Load profile asynchronously untuk tidak block UI
+      fetchUserProfile(session.user.id)
+        .then(profile => {
+          if (profile) {
+            setAuthState(prev => ({ ...prev, profile }))
+          }
+        })
+        .catch(profileError => {
+          console.warn('Failed to fetch profile:', profileError)
+          // Retry sekali lagi setelah delay
+          setTimeout(async () => {
+            try {
+              const retryProfile = await fetchUserProfile(session.user.id)
+              if (retryProfile) {
+                setAuthState(prev => ({ ...prev, profile: retryProfile }))
+              }
+            } catch (retryError) {
+              console.warn('Profile fetch retry failed:', retryError)
+            }
+          }, 2000)
+        })
+
     } catch (error) {
       console.error('Auth initialization error:', error)
-      
-      // Gunakan error boundary untuk decide retry
-      
-      
-      // Set ke not authenticated setelah max retry atau auth error
+
+      // Set ke not authenticated setelah error
       setAuthState({
         isAuthenticated: false,
         user: null,
@@ -189,27 +184,37 @@ export const useAuth = () => {
   }
 
   // Clear session cache manually dengan snapme cleanup
-  const clearCache = () => {
+  const clearCache = useCallback(() => {
     clearSnapmeSessions()
     clearSessionCache()
     // Reinitialize auth after clearing cache
     initializeAuth()
-  }
+  }, [initializeAuth])
 
   // Refresh profile
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     if (!authState.user) return
 
     const profile = await fetchUserProfile(authState.user.id)
     setAuthState(prev => ({ ...prev, profile }))
-  }
+  }, [authState.user])
 
-  // Listen to auth changes
+  // Listen to auth changes - hanya dijalankan sekali saat mount
   useEffect(() => {
-    initializeAuth()
+    let isMounted = true
+    
+    const initialize = async () => {
+      if (isMounted) {
+        await initializeAuth()
+      }
+    }
+    
+    initialize()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (!isMounted) return
+        
         if (event === 'SIGNED_IN' && session?.user) {
           const authUser = convertToAuthUser(session.user)
           
@@ -221,9 +226,10 @@ export const useAuth = () => {
             console.warn('Failed to fetch profile on auth state change:', profileError)
             // Try one more time after a short delay
             setTimeout(async () => {
+              if (!isMounted) return
               try {
                 const retryProfile = await fetchUserProfile(session.user.id)
-                if (retryProfile) {
+                if (retryProfile && isMounted) {
                   setAuthState(prev => ({ ...prev, profile: retryProfile }))
                 }
               } catch (retryError) {
@@ -232,14 +238,16 @@ export const useAuth = () => {
             }, 500)
           }
 
-          setAuthState({
-            isAuthenticated: true,
-            user: authUser,
-            profile,
-            loading: false,
-            error: null
-          })
-        } else if (event === 'SIGNED_OUT') {
+          if (isMounted) {
+            setAuthState({
+              isAuthenticated: true,
+              user: authUser,
+              profile,
+              loading: false,
+              error: null
+            })
+          }
+        } else if (event === 'SIGNED_OUT' && isMounted) {
           setAuthState({
             isAuthenticated: false,
             user: null,
@@ -252,9 +260,10 @@ export const useAuth = () => {
     )
 
     return () => {
+      isMounted = false
       subscription.unsubscribe()
     }
-  }, [initializeAuth])
+  }, []) // Empty dependency array untuk hanya run sekali
 
   return {
     ...authState,

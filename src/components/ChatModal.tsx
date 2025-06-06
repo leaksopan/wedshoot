@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { useChat } from '@/hooks/useChat'
 import { useAuth } from '@/hooks/useAuth'
 import { Message } from '@/types/database'
@@ -186,9 +187,11 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
                       {message.file_url && (
                         <div className="mt-2">
                           {message.message_type === 'image' ? (
-                            <img 
+                            <Image 
                               src={message.file_url} 
                               alt="Image" 
+                              width={300}
+                              height={200}
                               className="max-w-full h-auto rounded-lg"
                             />
                           ) : (

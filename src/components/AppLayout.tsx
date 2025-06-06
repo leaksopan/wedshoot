@@ -1,7 +1,8 @@
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 import { Header } from './Header'
 import { Footer } from './Footer'
 import { DebugAuth } from './DebugAuth'
+import { startPerformanceMonitoring } from '@/utils/performance'
 
 interface AppLayoutProps {
   children: ReactNode
@@ -9,11 +10,18 @@ interface AppLayoutProps {
   showFooter?: boolean
 }
 
-export const AppLayout = ({ 
-  children, 
-  showHeader = true, 
-  showFooter = true 
+export const AppLayout = ({
+  children,
+  showHeader = true,
+  showFooter = true
 }: AppLayoutProps) => {
+  // Initialize performance monitoring
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_ENABLE_PERFORMANCE_MONITORING === 'true') {
+      startPerformanceMonitoring()
+    }
+  }, [])
+
   return (
     <div className="min-h-screen flex flex-col">
       {showHeader && <Header />}
@@ -24,4 +32,4 @@ export const AppLayout = ({
       <DebugAuth />
     </div>
   )
-} 
+}
