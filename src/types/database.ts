@@ -934,6 +934,7 @@ export interface ChatRoom {
   status: 'active' | 'archived' | 'blocked'
   created_at: string
   updated_at: string
+  last_activity_at: string | null
   vendor?: {
     id: string
     business_name: string

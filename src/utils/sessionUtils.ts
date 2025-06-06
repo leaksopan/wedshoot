@@ -149,25 +149,41 @@ export const getSafeSession = async (retryCount = 0): Promise<Session | null> =>
 }
 
 /**
- * Initialize session dengan check for old sessions
+ * Initialize session dengan check for old sessions - IMPROVED
  */
 export const initializeSession = async () => {
   // Clear old snapme sessions first
   const hadOldSessions = clearSnapmeSessions()
   
   if (hadOldSessions) {
-    // Refresh the page to reinitialize auth properly
-    if (typeof window !== 'undefined') {
-      window.location.reload()
-      return
-    }
+    // Don't auto reload, just clear and continue
+    console.log('Cleared old snapme sessions')
   }
 
   try {
-    const { data: { session } } = await supabase.auth.getSession()
+    const { data: { session }, error } = await supabase.auth.getSession()
+    
+    if (error) {
+      console.warn('Session initialization error:', error)
+      // Clear corrupt session data
+      clearSessionCache()
+      return null
+    }
+    
+    // Check if session is expired
+    if (session && session.expires_at) {
+      const now = Math.floor(Date.now() / 1000)
+      if (now >= session.expires_at) {
+        console.log('Session expired, clearing...')
+        clearSessionCache()
+        return null
+      }
+    }
     
     return session
-  } catch {
+  } catch (error) {
+    console.warn('Session get error:', error)
+    clearSessionCache()
     return null
   }
 }
@@ -199,40 +215,125 @@ export const resetApplication = () => {
         const key = localStorage.key(i)
         if (key) localStorageKeys.push(key)
       }
-      localStorageKeys.forEach(key => {
-        localStorage.removeItem(key)
-      })
-
-      // Clear all sessionStorage  
+      localStorageKeys.forEach(key => localStorage.removeItem(key))
+      
+      // Clear all sessionStorage
       const sessionStorageKeys = []
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)
         if (key) sessionStorageKeys.push(key)
       }
-      sessionStorageKeys.forEach(key => {
-        sessionStorage.removeItem(key)
-      })
-
-      // Clear cookies (optional - be careful with this)
-      document.cookie.split(";").forEach(function(c) { 
-        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
-      })
+      sessionStorageKeys.forEach(key => sessionStorage.removeItem(key))
       
-      // Reload page after clearing everything
-      window.location.reload()
-      
-      return true
+      // Clear cookies via Supabase
+      supabase.auth.signOut({ scope: 'local' }).then(() => {
+        // Force reload setelah clear
+        window.location.reload()
+      }).catch(() => {
+        // Force reload even if signout fails
+        window.location.reload()
+      })
     }
-    return false
-  } catch {
-    return false
+  } catch (error) {
+    console.warn('Reset application error:', error)
+    // Force reload anyway
+    if (typeof window !== 'undefined') {
+      window.location.reload()
+    }
   }
 }
 
 /**
- * Debug helper - print semua storage keys
+ * Force fix stuck session - untuk debug
+ */
+export const forceFixStuckSession = async () => {
+  if (process.env.NODE_ENV !== 'development') return
+  
+  try {
+    console.log('🔧 Force fixing stuck session...')
+    
+    // 1. Clear all storage
+    clearSessionCache()
+    clearSnapmeSessions()
+    
+    // 2. Force signout dari supabase
+    await supabase.auth.signOut({ scope: 'global' })
+    
+    // 3. Clear cookies
+    if (typeof document !== 'undefined') {
+      document.cookie.split(";").forEach((c) => {
+        const eqPos = c.indexOf("=")
+        const name = eqPos > -1 ? c.substr(0, eqPos) : c
+        if (name.trim().includes('supabase') || name.trim().includes('auth')) {
+          document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname
+          document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/"
+        }
+      })
+    }
+    
+    console.log('✅ Session reset completed, reloading...')
+    
+    // 4. Force reload
+    setTimeout(() => {
+      window.location.reload()
+    }, 500)
+    
+  } catch (error) {
+    console.error('❌ Force fix error:', error)
+    window.location.reload()
+  }
+}
+
+/**
+ * Debug storage keys - untuk troubleshooting
  */
 export const debugStorageKeys = () => {
-  if (typeof window === 'undefined') return
-  // Debug info available in development only
+  if (process.env.NODE_ENV !== 'development') return
+  
+  try {
+    if (typeof window !== 'undefined') {
+      console.group('🔍 Storage Debug Info')
+      
+      // localStorage
+      console.log('📦 LocalStorage Keys:')
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key) {
+          const value = localStorage.getItem(key)
+          if (key.includes('supabase') || key.includes('auth') || key.includes('snapme')) {
+            console.log(`  🔑 ${key}:`, value ? value.substring(0, 100) + '...' : 'null')
+          }
+        }
+      }
+      
+      // sessionStorage
+      console.log('💾 SessionStorage Keys:')
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key) {
+          const value = sessionStorage.getItem(key)
+          if (key.includes('supabase') || key.includes('auth') || key.includes('snapme')) {
+            console.log(`  🔑 ${key}:`, value ? value.substring(0, 100) + '...' : 'null')
+          }
+        }
+      }
+      
+      // Current session status
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
+        console.log('🔐 Current Session:', session ? 'EXISTS' : 'NULL')
+        console.log('❌ Session Error:', error)
+        if (session) {
+          console.log('👤 User ID:', session.user?.id)
+          console.log('📧 Email:', session.user?.email)
+          console.log('⏰ Expires:', new Date(session.expires_at! * 1000))
+        }
+        console.groupEnd()
+      }).catch(err => {
+        console.log('❌ Session Check Error:', err)
+        console.groupEnd()
+      })
+    }
+  } catch (error) {
+    console.error('Debug error:', error)
+  }
 } 

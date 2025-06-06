@@ -143,25 +143,33 @@ export const useAuth = () => {
     }
   }, [])
 
-  // Sign out
+  // Sign out dengan cleanup yang lebih baik
   const signOut = async () => {
     try {
       setAuthState(prev => ({ ...prev, loading: true }))
+      
+      // Clear local storage terlebih dahulu
+      clearSessionCache()
+      clearSnapmeSessions()
       
       const { error } = await supabase.auth.signOut()
       
       if (error) {
         console.error('Sign out error:', error)
-        setAuthState(prev => ({ 
-          ...prev, 
-          loading: false, 
-          error: error.message 
-        }))
+        // Walaupun ada error, tetap set ke unauthenticated
+        setAuthState({
+          isAuthenticated: false,
+          user: null,
+          profile: null,
+          loading: false,
+          error: null
+        })
+        // Force reload untuk memastikan cleanup
+        if (typeof window !== 'undefined') {
+          window.location.reload()
+        }
         return { success: false, error: error.message }
       }
-
-      // Clear session cache
-      clearSessionCache()
 
       setAuthState({
         isAuthenticated: false,
@@ -174,11 +182,22 @@ export const useAuth = () => {
       return { success: true }
     } catch (error) {
       console.error('Sign out error:', error)
-      setAuthState(prev => ({ 
-        ...prev, 
-        loading: false, 
-        error: 'Failed to sign out' 
-      }))
+      // Force cleanup even on error
+      clearSessionCache()
+      clearSnapmeSessions()
+      setAuthState({
+        isAuthenticated: false,
+        user: null,
+        profile: null,
+        loading: false,
+        error: null
+      })
+      
+      // Force reload untuk memastikan cleanup
+      if (typeof window !== 'undefined') {
+        window.location.reload()
+      }
+      
       return { success: false, error: 'Failed to sign out' }
     }
   }
@@ -263,7 +282,7 @@ export const useAuth = () => {
       isMounted = false
       subscription.unsubscribe()
     }
-  }, []) // Empty dependency array untuk hanya run sekali
+  }, [initializeAuth]) // Include initializeAuth dependency
 
   return {
     ...authState,

@@ -1,20 +1,37 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/hooks/useAuth'
 import { useChat } from '@/hooks/useChat'
 import { ChatRoom } from '@/types/database'
-import { clearSnapmeSessions, resetApplication, debugStorageKeys } from '@/utils/sessionUtils'
+import { clearSnapmeSessions, resetApplication, debugStorageKeys, forceFixStuckSession } from '@/utils/sessionUtils'
 
 export default function ChatListPage() {
   const router = useRouter()
-  const { isAuthenticated, user, profile, loading: authLoading } = useAuth()
-  const { chatRooms, loading, loadChatRooms, realtimeConnected } = useChat()
+  const { isAuthenticated, user, profile, loading: authLoading, signOut } = useAuth()
+  const { chatRooms, loading, loadChatRooms, realtimeConnected, cleanupConnections } = useChat()
   const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null)
+  const [isInitialized, setIsInitialized] = useState(false)
+  const hasLoadedOnceRef = useRef(false) // Add flag to prevent multiple loads
+  
+  // Refs untuk prevent dependency loops
+  const userIdRef = useRef<string | null>(null)
+  const isAuthenticatedRef = useRef<boolean>(false)
+  const isInitializedRef = useRef<boolean>(false)
+  
+  // Update refs ketika values berubah
+  useEffect(() => {
+    userIdRef.current = user?.id || null
+    isAuthenticatedRef.current = isAuthenticated
+    isInitializedRef.current = isInitialized
+  }, [user?.id, isAuthenticated, isInitialized])
+
+  // Memoize stable values
+  const userId = useMemo(() => user?.id || null, [user?.id])
+  const hasUser = useMemo(() => !!user, [user])
 
   useEffect(() => {
     // Clear old snapme sessions on page load
@@ -23,195 +40,161 @@ export default function ChatListPage() {
     // Tunggu auth loading selesai dulu
     if (authLoading) return
     
+    // Reset initialization state jika auth berubah
+    if (!isInitialized) {
+      setIsInitialized(true)
+    }
+    
     if (!isAuthenticated) {
+      // Reset load flag ketika logout
+      hasLoadedOnceRef.current = false
+      // Clean up connections sebelum redirect
+      cleanupConnections?.()
       router.push('/login')
       return
     }
 
-    loadChatRooms()
-  }, [authLoading, isAuthenticated, router]) // Hapus loadChatRooms dari dependencies
-
-  // Debug function (hanya di development)
-  const showDebugInfo = () => {
-    if (process.env.NODE_ENV !== 'development') return
-
-    const info = {
-      auth: {
-        isAuthenticated,
-        hasUser: !!user,
-        userId: user?.id,
-        userEmail: user?.email,
-        hasProfile: !!profile,
-        preferredRole: profile?.preferred_role
-      },
-      storage: typeof window !== 'undefined' ? {
-        localStorage: Object.keys(localStorage).filter(key => 
-          key.includes('supabase') || key.includes('auth') || key.includes('snapme') || key.includes('wedshoot')
-        ),
-        sessionStorage: Object.keys(sessionStorage).filter(key => 
-          key.includes('supabase') || key.includes('auth') || key.includes('snapme') || key.includes('wedshoot')
-        )
-      } : null
+    // Load chat rooms hanya sekali setelah authenticated - MANUAL CALL to prevent loops
+    if (isAuthenticated && hasUser && !loading && isInitialized && !hasLoadedOnceRef.current) {
+      console.log('🔄 Manually loading chat rooms from chat page (ONCE)...')
+      hasLoadedOnceRef.current = true
+      loadChatRooms()
     }
-    setDebugInfo(info)
-  }
 
-  const formatLastMessageTime = (timestamp: string | null) => {
-    if (!timestamp) return ''
-    
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / (1000 * 60))
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    // Cleanup function
+    return () => {
+      if (!isAuthenticated) {
+        cleanupConnections?.()
+      }
+    }
+  }, [authLoading, isAuthenticated, userId, isInitialized, loading]) // Removed loadChatRooms to prevent loops
 
-    if (diffMins < 1) return 'Baru saja'
-    if (diffMins < 60) return `${diffMins}m`
-    if (diffHours < 24) return `${diffHours}j`
-    if (diffDays === 1) return 'Kemarin'
-    if (diffDays < 7) return `${diffDays}h`
-    
-    return date.toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'short'
+  const formatTime = (timestamp: string) => {
+    return new Date(timestamp).toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
     })
   }
 
-  const getChatPartner = (room: ChatRoom) => {
-    if (profile?.is_vendor) {
-      // Jika saya vendor, tampilkan client
-      return {
-        name: room.client?.full_name || 'Client',
-        avatar: room.client?.avatar_url,
-        id: room.client?.id
-      }
-    } else {
-      // Jika saya client, tampilkan vendor
-      return {
-        name: room.vendor?.business_name || 'Vendor',
-        avatar: room.vendor?.user_profiles?.avatar_url,
-        id: room.vendor?.id
-      }
+  const handleChatClick = (room: ChatRoom) => {
+    router.push(`/chat/${room.id}`)
+  }
+
+  // Debug functions (development only)
+  const handleDebugAuth = () => {
+    if (process.env.NODE_ENV !== 'development') return
+    
+    const info = {
+      authLoading,
+      isAuthenticated,
+      user: user ? { id: user.id, email: user.email } : null,
+      profile: profile ? { is_vendor: profile.is_vendor, full_name: profile.full_name } : null,
+      chatRoomsCount: chatRooms.length,
+      realtimeConnected,
+      localStorage: debugStorageKeys()
+    }
+    setDebugInfo(info)
+    console.log('Debug Auth Info:', info)
+  }
+
+  const handleForceReset = async () => {
+    if (process.env.NODE_ENV !== 'development') return
+    
+    await resetApplication()
+    window.location.reload()
+  }
+
+  const handleForceSignOut = async () => {
+    try {
+      cleanupConnections?.()
+      await signOut()
+      router.push('/login')
+    } catch (error) {
+      console.error('Force signout error:', error)
+      await forceFixStuckSession()
+      window.location.href = '/login'
     }
   }
 
-  const getUnreadCount = (room: ChatRoom) => {
-    return profile?.is_vendor ? room.unread_count_vendor : room.unread_count_client
+  const handleFixStuckSession = async () => {
+    if (process.env.NODE_ENV !== 'development') return
+    
+    await forceFixStuckSession()
+    window.location.reload()
   }
 
-  // Show loading state
-  if (authLoading || (!isAuthenticated && authLoading)) {
+  if (authLoading) {
     return (
       <AppLayout>
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500 mx-auto mb-4"></div>
-              <p className="text-gray-600">Memuat daftar chat...</p>
-            </div>
-          </div>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
         </div>
       </AppLayout>
     )
-  }
-
-  if (!isAuthenticated) {
-    return null
   }
 
   return (
     <AppLayout>
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center space-x-3">
-                <h1 className="text-3xl font-bold text-gray-900">Pesan</h1>
-                {/* Realtime Status Indicator */}
-                <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-medium ${
-                  realtimeConnected 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-gray-100 text-gray-600'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    realtimeConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
-                  }`}></div>
-                  <span>{realtimeConnected ? 'Realtime Aktif' : 'Offline'}</span>
-                </div>
-              </div>
-              <p className="text-gray-600 mt-2">
-                Kelola percakapan dengan {profile?.is_vendor ? 'klien' : 'vendor'} Anda
-              </p>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              {/* Search Bar */}
-              <div className="relative">
-                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <input
-                  type="text"
-                  placeholder="Cari percakapan..."
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent w-80"
-                />
-              </div>
-              
-              {/* Debug Button (development only) */}
-              {process.env.NODE_ENV === 'development' && (
-                <div className="flex space-x-2">
-                  <button
-                    onClick={showDebugInfo}
-                    className="px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors"
-                  >
-                    Debug
-                  </button>
-                  <button
-                    onClick={debugStorageKeys}
-                    className="px-3 py-2 bg-yellow-500 text-white text-sm rounded-lg hover:bg-yellow-600 transition-colors"
-                  >
-                    Storage
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm('Reset semua data browser? Ini akan logout dan reload halaman.')) {
-                        resetApplication()
-                      }
-                    }}
-                    className="px-3 py-2 bg-red-500 text-white text-sm rounded-lg hover:bg-red-600 transition-colors"
-                  >
-                    Reset
-                  </button>
-                </div>
-              )}
-            </div>
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Chat</h1>
+            <p className="text-gray-600 mt-1">Percakapan dengan vendor</p>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${realtimeConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className="text-sm text-gray-500">
+              {realtimeConnected ? 'Connected' : 'Disconnected'}
+            </span>
           </div>
         </div>
 
-        {/* Debug Info (development only) */}
-        {process.env.NODE_ENV === 'development' && debugInfo && (
-          <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-yellow-800">Debug Info</h3>
+        {/* Debug Panel (Development Only) */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <h3 className="font-semibold text-yellow-800 mb-2">Debug Panel</h3>
+            <div className="flex flex-wrap gap-2 mb-3">
               <button
-                onClick={() => setDebugInfo(null)}
-                className="text-yellow-600 hover:text-yellow-800"
+                onClick={handleDebugAuth}
+                className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
               >
-                ✕
+                Debug Auth
+              </button>
+              <button
+                onClick={handleForceSignOut}
+                className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+              >
+                Force SignOut
+              </button>
+              <button
+                onClick={handleForceReset}
+                className="px-3 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600"
+              >
+                Reset App
+              </button>
+              <button
+                onClick={handleFixStuckSession}
+                className="px-3 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600"
+              >
+                Fix Stuck Session
               </button>
             </div>
-            <pre className="text-xs text-yellow-700 overflow-auto">
-              {JSON.stringify(debugInfo, null, 2)}
-            </pre>
+            {debugInfo && (
+              <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">
+                {JSON.stringify(debugInfo, null, 2)}
+              </pre>
+            )}
           </div>
         )}
 
-        {/* Chat List */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        {/* Chat Rooms List */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex items-center justify-center h-64">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
             </div>
           ) : chatRooms.length === 0 ? (
@@ -220,127 +203,65 @@ export default function ChatListPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
               <h3 className="text-lg font-medium text-gray-900 mb-2">Belum ada percakapan</h3>
-              <p className="text-gray-500 mb-6">
-                {profile?.is_vendor 
-                  ? 'Klien akan menghubungi Anda melalui halaman layanan'
-                  : 'Mulai chat dengan vendor dari halaman layanan'
-                }
-              </p>
+              <p className="text-gray-500">Mulai chat dengan vendor melalui halaman vendor</p>
               <Link
-                href="/services"
-                className="inline-flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                href="/vendors"
+                className="mt-4 inline-flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
               >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                Cari Vendor
+                <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
-                Jelajahi Layanan
               </Link>
             </div>
           ) : (
             <div className="divide-y divide-gray-200">
               {chatRooms.map((room) => {
-                const partner = getChatPartner(room)
-                const unreadCount = getUnreadCount(room)
+                const isVendor = profile?.is_vendor
+                const displayName = isVendor 
+                  ? (room.client?.full_name || 'Client')
+                  : (room.vendor?.business_name || room.vendor?.user_profiles?.full_name || 'Vendor')
                 
                 return (
-                  <Link
+                  <button
                     key={room.id}
-                    href={`/chat/${room.id}`}
-                    className="block hover:bg-gray-50 transition-colors"
+                    onClick={() => handleChatClick(room)}
+                    className="w-full text-left p-6 hover:bg-gray-50 transition-colors"
                   >
-                    <div className="px-6 py-4">
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4">
-                        {/* Avatar */}
-                        <div className="relative flex-shrink-0">
-                          {partner.avatar ? (
-                            <Image
-                              src={partner.avatar}
-                              alt={partner.name}
-                              width={48}
-                              height={48}
-                              className="w-12 h-12 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gradient-to-r from-red-500 to-red-600 rounded-full flex items-center justify-center">
-                              <span className="text-white font-bold text-lg">
-                                {partner.name.charAt(0)}
-                              </span>
-                            </div>
-                          )}
-                          
-                          {/* Online indicator (placeholder) */}
-                          <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-400 border-2 border-white rounded-full"></div>
+                        <div className="w-12 h-12 bg-gradient-to-r from-red-500 to-red-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-bold text-lg">
+                            {displayName.charAt(0).toUpperCase()}
+                          </span>
                         </div>
-
-                        {/* Chat Info */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-1">
-                            <h3 className={`text-sm font-medium truncate ${
-                              unreadCount > 0 ? 'text-gray-900' : 'text-gray-700'
-                            }`}>
-                              {partner.name}
-                            </h3>
-                            <div className="flex items-center space-x-2">
-                              {room.last_message_at && (
-                                <span className="text-xs text-gray-500">
-                                  {formatLastMessageTime(room.last_message_at)}
-                                </span>
-                              )}
-                              {unreadCount > 0 && (
-                                <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
-                                  {unreadCount > 99 ? '99+' : unreadCount}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          
-                          {/* Last Message Preview */}
-                          <p className={`text-sm truncate ${
-                            unreadCount > 0 ? 'text-gray-900 font-medium' : 'text-gray-500'
-                          }`}>
-                            {room.last_message_preview || 'Mulai percakapan...'}
+                          <h3 className="font-semibold text-gray-900 truncate">
+                            {displayName}
+                          </h3>
+                          <p className="text-sm text-gray-500 truncate mt-1">
+                            {room.last_message_preview || 'Belum ada pesan'}
                           </p>
                         </div>
-
-                        {/* Chevron */}
-                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500">
+                          {room.last_message_at ? formatTime(room.last_message_at) : ''}
+                        </div>
+                        {((isVendor && room.unread_count_vendor > 0) || 
+                          (!isVendor && room.unread_count_client > 0)) && (
+                          <div className="mt-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center ml-auto">
+                            {isVendor ? room.unread_count_vendor : room.unread_count_client}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </Link>
+                  </button>
                 )
               })}
             </div>
           )}
         </div>
-
-        {/* Quick Actions */}
-        {chatRooms.length > 0 && (
-          <div className="mt-8">
-            <div className="bg-gradient-to-r from-red-50 to-red-100 rounded-xl p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-red-900">Tips Chat Efektif</h3>
-                  <p className="text-red-700 text-sm mt-1">
-                    {profile?.is_vendor 
-                      ? 'Respon cepat meningkatkan kepuasan klien dan rating Anda'
-                      : 'Tanyakan detail spesifik untuk mendapatkan penawaran terbaik'
-                    }
-                  </p>
-                </div>
-                <div className="flex space-x-2">
-                  <Link
-                    href="/services"
-                    className="px-4 py-2 bg-white text-red-600 rounded-lg hover:bg-red-50 transition-colors text-sm font-medium"
-                  >
-                    Jelajahi Layanan
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </AppLayout>
   )

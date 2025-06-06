@@ -1,16 +1,17 @@
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 
-// Supabase configuration - UPDATED untuk WedShoot project
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://rufdjysbrykvrtxyqxtg.supabase.co'
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1ZmRqeXNicnlrdnJ0eHlxeHRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxMDg5MjUsImV4cCI6MjA2NDY4NDkyNX0.EAhuwH-E0WA-Ocl_JLdNQNt8lI9fq_nfpxZhyOHw3-I'
+// Supabase configuration - FIXED dengan data dari MCP
+const supabaseUrl = 'https://rufdjysbrykvrtxyqxtg.supabase.co'
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1ZmRqeXNicnlrdnJ0eHlxeHRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxMDg5MjUsImV4cCI6MjA2NDY4NDkyNX0.EAhuwH-E0WA-Ocl_JLdNQNt8lI9fq_nfpxZhyOHw3-I'
 
-// Debug API key untuk development
+// Debug configuration untuk development
 if (process.env.NODE_ENV === 'development') {
-  console.log('Supabase Config:', {
+  console.log('🔧 Supabase Config:', {
     url: supabaseUrl,
     keyLength: supabaseAnonKey?.length,
-    hasKey: !!supabaseAnonKey
+    hasKey: !!supabaseAnonKey,
+    project: 'WedShoot'
   })
 }
 
@@ -19,37 +20,24 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    flowType: 'pkce'
+    flowType: 'pkce',
+    // Improved auth configuration
+    storageKey: 'wedshoot-auth-token',
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined
   },
   realtime: {
     params: {
       eventsPerSecond: 10
-    }
+    },
+    // Improved realtime configuration
+    heartbeatIntervalMs: 30000,
+    reconnectAfterMs: (tries: number) => Math.min(tries * 1000, 30000)
   },
   global: {
     headers: {
       'X-Client-Info': 'wedshoot@1.0.0',
       'Accept': 'application/json',
       'Content-Type': 'application/json'
-    },
-    // Optimasi untuk production
-    fetch: (url, options = {}) => {
-      // Debug request untuk development
-      if (process.env.NODE_ENV === 'development') {
-        const urlString = typeof url === 'string' ? url : url.toString()
-        console.log('Supabase request:', {
-          url: urlString.substring(0, 80) + '...',
-          method: options.method || 'GET',
-          hasApiKey: !!(options.headers as Record<string, unknown>)?.apikey,
-          hasAuth: !!(options.headers as Record<string, unknown>)?.Authorization
-        })
-      }
-      
-      return fetch(url, {
-        ...options,
-        // Add connection timeout untuk mencegah hanging requests
-        signal: AbortSignal.timeout(30000), // 30 second timeout
-      })
     }
   },
   // Add connection options untuk stabilitas
@@ -63,18 +51,30 @@ export const debugSession = async () => {
   if (process.env.NODE_ENV !== 'development') return
 
   try {
-    const { error } = await supabase.auth.getSession()
-    if (error) return
-    // Session info logged in development only
-  } catch {
-    // Error silently handled
+    const { data: session, error } = await supabase.auth.getSession()
+    console.log('🔐 Session Debug:', {
+      hasSession: !!session?.session,
+      hasUser: !!session?.session?.user,
+      userId: session?.session?.user?.id,
+      email: session?.session?.user?.email,
+      error: error?.message
+    })
+    return { session: session?.session, error }
+  } catch (err) {
+    console.error('❌ Session debug error:', err)
+    return { session: null, error: err }
   }
 }
 
 // Auto initialize auth listener
-supabase.auth.onAuthStateChange(() => {
+supabase.auth.onAuthStateChange((event, session) => {
   if (process.env.NODE_ENV === 'development') {
-    // Auth state changes logged in development only
+    console.log('🔄 Auth state change:', {
+      event,
+      hasSession: !!session,
+      userId: session?.user?.id,
+      email: session?.user?.email
+    })
   }
 })
 
@@ -84,7 +84,7 @@ export const clearAuthData = () => {
     const keysToRemove = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key?.includes('supabase')) {
+      if (key?.includes('supabase') || key?.includes('wedshoot')) {
         keysToRemove.push(key)
       }
     }
@@ -92,22 +92,28 @@ export const clearAuthData = () => {
     keysToRemove.forEach(key => {
       localStorage.removeItem(key)
     })
-  } catch {
-    // Silent cleanup
+    
+    console.log('🧹 Cleared auth data:', keysToRemove.length, 'keys')
+  } catch (err) {
+    console.warn('⚠️ Failed to clear auth data:', err)
   }
 }
 
 // Helper function untuk checking koneksi
 export const checkSupabaseConnection = async () => {
   try {
+    console.log('🔍 Testing Supabase connection...')
     const { error } = await supabase.from('user_profiles').select('count', { count: 'exact', head: true })
     
     if (error) {
+      console.error('❌ Connection test failed:', error.message)
       return false
     }
     
+    console.log('✅ Supabase connection OK')
     return true
-  } catch {
+  } catch (err) {
+    console.error('❌ Connection test exception:', err)
     return false
   }
 }
@@ -115,9 +121,18 @@ export const checkSupabaseConnection = async () => {
 // Helper function untuk test auth
 export const testSupabaseAuth = async () => {
   try {
-    const { error } = await supabase.auth.getSession()
-    return !error
-  } catch {
+    const { data, error } = await supabase.auth.getSession()
+    const isValid = !error && !!data.session
+    
+    console.log('🔐 Auth test:', {
+      isValid,
+      hasSession: !!data.session,
+      error: error?.message
+    })
+    
+    return isValid
+  } catch (err) {
+    console.error('❌ Auth test exception:', err)
     return false
   }
 }
@@ -138,6 +153,8 @@ export const subscribeToMessages = (
 ) => {
   const channelName = `messages:${roomId}:${Date.now()}`
   
+  console.log('📡 Setting up messages subscription for room:', roomId)
+  
   const channel = supabase
     .channel(channelName, {
       config: {
@@ -155,6 +172,7 @@ export const subscribeToMessages = (
         filter: `room_id=eq.${roomId}`
       },
       (payload) => {
+        console.log('📩 New message received:', payload.new?.id)
         onMessage({ ...payload, eventType: 'INSERT' })
       }
     )
@@ -167,16 +185,21 @@ export const subscribeToMessages = (
         filter: `room_id=eq.${roomId}`
       },
       (payload) => {
+        console.log('📝 Message updated:', payload.new?.id)
         onMessage({ ...payload, eventType: 'UPDATE' })
       }
     )
     .subscribe((status, err) => {
+      console.log('📡 Messages subscription status:', status, err?.message)
+      
       if (status === 'CHANNEL_ERROR') {
         onError?.(err?.toString() || status)
       } else if (status === 'TIMED_OUT') {
         onError?.('Connection timed out')
       } else if (status === 'CLOSED') {
         onError?.('Connection closed')
+      } else if (status === 'SUBSCRIBED') {
+        console.log('✅ Messages subscription active for room:', roomId)
       }
     })
 
@@ -189,6 +212,8 @@ export const subscribeToChatRooms = (
   onError?: (error: string) => void
 ) => {
   const channelName = `chat_rooms:user:${userId}:${Date.now()}`
+  
+  console.log('📡 Setting up chat rooms subscription for user:', userId)
   
   const channel = supabase
     .channel(channelName)
@@ -203,6 +228,7 @@ export const subscribeToChatRooms = (
         // Filter hanya room yang user terlibat
         const room = payload.new as Record<string, unknown>
         if (room.client_id === userId || room.vendor_id === userId) {
+          console.log('🔄 Chat room updated:', room.id)
           onRoomUpdate({ ...payload, eventType: 'UPDATE' })
         }
       }
@@ -218,17 +244,22 @@ export const subscribeToChatRooms = (
         // Filter hanya room yang user terlibat
         const room = payload.new as Record<string, unknown>
         if (room.client_id === userId || room.vendor_id === userId) {
+          console.log('➕ New chat room:', room.id)
           onRoomUpdate({ ...payload, eventType: 'INSERT' })
         }
       }
     )
     .subscribe((status, err) => {
+      console.log('📡 Chat rooms subscription status:', status, err?.message)
+      
       if (status === 'CHANNEL_ERROR') {
         onError?.(err?.toString() || status)
       } else if (status === 'TIMED_OUT') {
         onError?.('Connection timed out')
       } else if (status === 'CLOSED') {
         onError?.('Connection closed')
+      } else if (status === 'SUBSCRIBED') {
+        console.log('✅ Chat rooms subscription active for user:', userId)
       }
     })
 
@@ -237,6 +268,8 @@ export const subscribeToChatRooms = (
 
 // Utility untuk unsubscribe semua channel
 export const unsubscribeAll = () => {
+  const channels = supabase.getChannels()
+  console.log('🧹 Unsubscribing from', channels.length, 'channels')
   supabase.removeAllChannels()
 }
 
@@ -245,20 +278,29 @@ export const debugRealtimeStatus = () => {
   if (process.env.NODE_ENV !== 'development') return null
   
   const channels = supabase.getChannels()
-  
-  return {
+  const status = {
     isConnected: supabase.realtime?.isConnected() || false,
     channelCount: channels.length,
-    channels: channels
+    channels: channels.map(ch => ({
+      topic: ch.topic,
+      state: ch.state
+    }))
   }
+  
+  console.log('📊 Realtime status:', status)
+  return status
 }
 
 // Connection retry utility
 export const retryRealtimeConnection = async (maxRetries = 3, delay = 2000) => {
   if (process.env.NODE_ENV !== 'development') return false
   
+  console.log('🔄 Retrying realtime connection...')
+  
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      console.log(`🔄 Attempt ${attempt}/${maxRetries}`)
+      
       // Disconnect dan reconnect
       await supabase.realtime.disconnect()
       await new Promise(resolve => setTimeout(resolve, delay))
@@ -267,11 +309,12 @@ export const retryRealtimeConnection = async (maxRetries = 3, delay = 2000) => {
       // Test connection
       const status = debugRealtimeStatus()
       if (status?.isConnected) {
+        console.log('✅ Realtime connection restored')
         return true
       }
       
-    } catch {
-      // Error handled silently
+    } catch (err) {
+      console.error(`❌ Retry attempt ${attempt} failed:`, err)
     }
     
     if (attempt < maxRetries) {
@@ -280,6 +323,7 @@ export const retryRealtimeConnection = async (maxRetries = 3, delay = 2000) => {
     }
   }
   
+  console.error('❌ All retry attempts failed')
   return false
 }
 
@@ -295,6 +339,8 @@ interface HealthCheckResult {
 // Health check utility
 export const performRealtimeHealthCheck = async (): Promise<HealthCheckResult | null> => {
   if (process.env.NODE_ENV !== 'development') return null
+  
+  console.log('🏥 Performing health check...')
   
   const results: HealthCheckResult = {
     timestamp: new Date().toISOString(),
@@ -317,8 +363,10 @@ export const performRealtimeHealthCheck = async (): Promise<HealthCheckResult | 
     results.connection = realtimeStatus?.isConnected || false
     results.channels = realtimeStatus?.channelCount || 0
     
+    console.log('🏥 Health check results:', results)
     return results
-  } catch {
+  } catch (err) {
+    console.error('❌ Health check failed:', err)
     results.errors.push('Health check failed')
     return results
   }

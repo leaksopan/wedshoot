@@ -52,18 +52,45 @@ export const Header = () => {
             >
               Home
             </Link>
-            <Link 
-              href="/vendors" 
-              className="text-gray-600 hover:text-gray-900 transition-colors font-medium"
-            >
-              Browse Vendors
-            </Link>
-            <Link 
-              href="/services" 
-              className="text-gray-600 hover:text-gray-900 transition-colors font-medium"
-            >
-              Services
-            </Link>
+            {profile?.preferred_role === 'vendor' ? (
+              // Vendor Navigation
+              <>
+                <Link 
+                  href="/vendor/services" 
+                  className="text-gray-600 hover:text-gray-900 transition-colors font-medium"
+                >
+                  My Services
+                </Link>
+                <Link 
+                  href="/vendor/bookings" 
+                  className="text-gray-600 hover:text-gray-900 transition-colors font-medium"
+                >
+                  Bookings
+                </Link>
+                <Link 
+                  href="/vendor/portfolio" 
+                  className="text-gray-600 hover:text-gray-900 transition-colors font-medium"
+                >
+                  Portfolio
+                </Link>
+              </>
+            ) : (
+              // Client Navigation
+              <>
+                <Link 
+                  href="/vendors" 
+                  className="text-gray-600 hover:text-gray-900 transition-colors font-medium"
+                >
+                  Browse Vendors
+                </Link>
+                <Link 
+                  href="/services" 
+                  className="text-gray-600 hover:text-gray-900 transition-colors font-medium"
+                >
+                  Services
+                </Link>
+              </>
+            )}
             <Link 
               href="/about" 
               className="text-gray-600 hover:text-gray-900 transition-colors font-medium"
@@ -157,20 +184,50 @@ export const Header = () => {
               >
                 Home
               </Link>
-              <Link 
-                href="/vendors" 
-                className="text-gray-600 hover:text-gray-900 transition-colors font-medium px-2 py-1"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                Browse Vendors
-              </Link>
-              <Link 
-                href="/services" 
-                className="text-gray-600 hover:text-gray-900 transition-colors font-medium px-2 py-1"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                Services
-              </Link>
+              {profile?.preferred_role === 'vendor' ? (
+                // Vendor Mobile Navigation
+                <>
+                  <Link 
+                    href="/vendor/services" 
+                    className="text-gray-600 hover:text-gray-900 transition-colors font-medium px-2 py-1"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    My Services
+                  </Link>
+                  <Link 
+                    href="/vendor/bookings" 
+                    className="text-gray-600 hover:text-gray-900 transition-colors font-medium px-2 py-1"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Bookings
+                  </Link>
+                  <Link 
+                    href="/vendor/portfolio" 
+                    className="text-gray-600 hover:text-gray-900 transition-colors font-medium px-2 py-1"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Portfolio
+                  </Link>
+                </>
+              ) : (
+                // Client Mobile Navigation
+                <>
+                  <Link 
+                    href="/vendors" 
+                    className="text-gray-600 hover:text-gray-900 transition-colors font-medium px-2 py-1"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Browse Vendors
+                  </Link>
+                  <Link 
+                    href="/services" 
+                    className="text-gray-600 hover:text-gray-900 transition-colors font-medium px-2 py-1"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Services
+                  </Link>
+                </>
+              )}
               <Link 
                 href="/about" 
                 className="text-gray-600 hover:text-gray-900 transition-colors font-medium px-2 py-1"

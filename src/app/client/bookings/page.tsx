@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/hooks/useAuth'
+import { supabase } from '@/lib/supabase'
 
 interface BookingData {
   id: string
@@ -37,47 +38,37 @@ export default function ClientBookingsPage() {
   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled'>('all')
 
   const loadBookings = useCallback(async () => {
-    if (!user) return
+    if (!user?.id) return
 
     try {
       setLoading(true)
 
-      // For now, we'll simulate loading bookings since the table might not be in types yet
-      // TODO: Replace with actual query once types are updated
-      
-      // Simulate some sample data
-      const sampleBookings: BookingData[] = [
-        {
-          id: 'sample-1',
-          service_id: 'service-1',
-          vendor_id: 'vendor-1',
-          booking_dates: ['2024-12-25', '2024-12-26'],
-          quantity: 1,
-          total_price: 5000000,
-          status: 'pending',
-          client_name: profile?.full_name || '',
-          client_phone: profile?.phone || '',
-          client_email: user.email || '',
-          created_at: new Date().toISOString(),
-          service: {
-            name: 'Paket Wedding Photography Premium',
-            price: 2500000,
-            images: []
-          },
-          vendor: {
-            business_name: 'Studio Foto Indah',
-            location: 'Jakarta'
-          }
-        }
-      ]
+      // Load real bookings from database
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          service:services!inner(name, price, images),
+          vendor:vendors!inner(business_name, location)
+        `)
+        .eq('client_id', user.id)
+        .order('created_at', { ascending: false })
 
-      setBookings(sampleBookings)
-    } catch {
-      // Error handled silently
+      if (bookingsError) {
+        console.error('Error loading bookings:', bookingsError)
+        setBookings([])
+        return
+      }
+
+      setBookings(bookingsData || [])
+
+    } catch (error) {
+      console.error('Error loading bookings:', error)
+      setBookings([])
     } finally {
       setLoading(false)
     }
-  }, [user, profile])
+  }, [user])
 
   useEffect(() => {
     if (isAuthenticated && user) {

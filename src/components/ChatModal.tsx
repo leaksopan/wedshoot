@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { useChat } from '@/hooks/useChat'
@@ -24,27 +24,51 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
   const [messageText, setMessageText] = useState('')
   const [sending, setSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  
+  // Refs untuk avoid dependency loops
+  const userIdRef = useRef<string | null>(null)
+  const vendorIdRef = useRef<string>(vendorId)
+  
+  // Update refs ketika values berubah
+  useEffect(() => {
+    userIdRef.current = user?.id || null
+    vendorIdRef.current = vendorId
+  }, [user?.id, vendorId])
+
+  // Memoize stable props
+  const modalProps = useMemo(() => ({
+    vendorId,
+    vendorName,
+    serviceName
+  }), [vendorId, vendorName, serviceName])
 
   const initializeChatRoom = useCallback(async () => {
-    if (!user) {
+    const userId = userIdRef.current
+    const currentVendorId = vendorIdRef.current
+    
+    if (!userId) {
       // Redirect ke login jika belum authenticate
       router.push('/login')
       return
     }
 
-    const roomId = await getOrCreateChatRoom(vendorId)
-    if (roomId) {
-      setRoomId(roomId)
-      await loadMessages(roomId)
+    try {
+      const roomId = await getOrCreateChatRoom(currentVendorId, vendorName, serviceName)
+      if (roomId) {
+        setRoomId(roomId)
+        await loadMessages(roomId)
+      }
+    } catch (error) {
+      console.error('Failed to initialize chat room:', error)
     }
-  }, [user, vendorId, getOrCreateChatRoom, loadMessages, router])
+  }, [getOrCreateChatRoom, loadMessages, router, vendorName, serviceName]) // Added vendorName and serviceName dependencies
 
-  // Initialize chat room ketika modal dibuka
+  // Initialize chat room ketika modal dibuka - OPTIMIZED
   useEffect(() => {
-    if (isOpen && user && vendorId) {
+    if (isOpen && user?.id && vendorId) {
       initializeChatRoom()
     }
-  }, [isOpen, user, vendorId, initializeChatRoom])
+  }, [isOpen, user?.id, modalProps.vendorId, initializeChatRoom]) // Stable dependencies
 
   // Auto scroll ke pesan terbaru
   useEffect(() => {
@@ -59,14 +83,16 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
     if (!roomId || !messageText.trim() || sending) return
 
     setSending(true)
-    const success = await sendMessage(roomId, messageText)
-    
-    if (success) {
+    try {
+      await sendMessage(roomId, messageText)
       setMessageText('')
       // Auto scroll setelah kirim pesan
       setTimeout(scrollToBottom, 100)
+    } catch (error) {
+      console.error('Failed to send message:', error)
+    } finally {
+      setSending(false)
     }
-    setSending(false)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -100,13 +126,13 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
               <span className="text-white font-bold text-lg">
-                {vendorName.charAt(0)}
+                {modalProps.vendorName.charAt(0)}
               </span>
             </div>
             <div>
-              <h3 className="font-semibold text-lg">{vendorName}</h3>
-              {serviceName && (
-                <p className="text-red-100 text-sm">Tentang: {serviceName}</p>
+              <h3 className="font-semibold text-lg">{modalProps.vendorName}</h3>
+              {modalProps.serviceName && (
+                <p className="text-red-100 text-sm">Tentang: {modalProps.serviceName}</p>
               )}
             </div>
           </div>
@@ -142,7 +168,7 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
               <svg className="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
-              <p className="text-center">Mulai percakapan dengan {vendorName}</p>
+              <p className="text-center">Mulai percakapan dengan {modalProps.vendorName}</p>
               <p className="text-sm text-center mt-2">Tanyakan tentang layanan, harga, atau detail lainnya</p>
             </div>
           ) : (
@@ -154,7 +180,7 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
                     {/* Sender name untuk pesan bukan dari saya */}
                     {!isMyMessage && (
                       <p className="text-xs text-gray-500 mb-1 px-3">
-                        {message.sender?.full_name || vendorName}
+                        {message.sender?.full_name || modalProps.vendorName}
                       </p>
                     )}
                     

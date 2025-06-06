@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AppLayout } from '@/components/AppLayout'
@@ -22,9 +22,26 @@ export default function ChatRoomPage() {
   const [sending, setSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
-
-  // Auth check dan load messages
+  
+  // Refs untuk prevent dependency loops
+  const userIdRef = useRef<string | null>(null)
+  const roomIdRef = useRef<string>(roomId)
+  const isAuthenticatedRef = useRef<boolean>(false)
+  
+  // Update refs ketika values berubah
   useEffect(() => {
+    userIdRef.current = user?.id || null
+    roomIdRef.current = roomId
+    isAuthenticatedRef.current = isAuthenticated
+  }, [user?.id, roomId, isAuthenticated])
+
+  // Memoize stable values
+  const stableRoomId = useMemo(() => roomId, [roomId])
+  const userId = useMemo(() => user?.id || null, [user?.id])
+
+  // Auth check dan load messages - OPTIMIZED
+  useEffect(() => {
+    console.log('🎯 Chat page effect triggered:', { authLoading, isAuthenticated, roomId })
     if (authLoading) return
     
     if (!isAuthenticated) {
@@ -32,10 +49,16 @@ export default function ChatRoomPage() {
       return
     }
 
-    if (roomId && isAuthenticated) {
-      loadMessages(roomId)
+    // Only load messages once when conditions are met
+    if (roomId && isAuthenticated && userId) {
+      console.log('📞 Calling loadMessages with roomId:', roomId)
+      const timeoutId = setTimeout(() => {
+        loadMessages(roomId)
+      }, 100) // Small delay to prevent rapid calls
+      
+      return () => clearTimeout(timeoutId)
     }
-  }, [authLoading, isAuthenticated, roomId, loadMessages, router])
+  }, [authLoading, isAuthenticated, stableRoomId, userId, router]) // Remove loadMessages dependency
 
   // Monitor realtime connection status
   useEffect(() => {
@@ -262,7 +285,7 @@ export default function ChatRoomPage() {
                   className="px-3 py-1 bg-purple-500 text-white text-sm rounded hover:bg-purple-600"
                 >
                   Network
-                </button>
+                </button> 
               </div>
             )}
           </div>
@@ -270,6 +293,10 @@ export default function ChatRoomPage() {
 
         {/* Messages Container */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {(() => {
+            console.log('🖼️ Render state:', { chatLoading, messagesLength: messages.length, messages: messages.slice(0, 3) })
+            return null
+          })()}
           {chatLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
