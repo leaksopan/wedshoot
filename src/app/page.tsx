@@ -287,25 +287,52 @@ export default function Home() {
           </div>
           
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-6">
-            {categories.map((category) => (
-              <Link
-                key={category.id}
-                href={`/categories/${category.slug || 'general'}`}
-                className="group p-6 bg-white rounded-xl border border-gray-100 hover:bg-rose-50 hover:shadow-lg hover:border-rose-200 transition-all duration-300"
-              >
-                <div className="text-center">
-                  <div className="text-3xl mb-3">
-                    {category.icon || '📸'}
-                  </div>
-                  <h3 className="font-semibold text-gray-900 group-hover:text-rose-600 transition-colors">
-                    {category.name}
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-2 line-clamp-2">
-                    {category.description || 'Wedding services'}
-                  </p>
+            {categories.map((category) => {
+              // Check if this is photographer category
+              const isPhotographer = category.name.toLowerCase().includes('fotograf') || 
+                                    category.name.toLowerCase() === 'fotografer';
+              
+              return (
+                <div key={category.id} className="relative">
+                  <Link
+                    href={isPhotographer ? `/categories/${category.slug || 'general'}` : '#'}
+                    className={`group p-6 bg-white rounded-xl border border-gray-100 transition-all duration-300 block ${
+                      isPhotographer 
+                        ? 'hover:bg-rose-50 hover:shadow-lg hover:border-rose-200' 
+                        : 'cursor-not-allowed opacity-75'
+                    }`}
+                    onClick={!isPhotographer ? (e) => e.preventDefault() : undefined}
+                  >
+                    <div className="text-center">
+                      <div className="text-3xl mb-3">
+                        {category.icon || '📸'}
+                      </div>
+                      <h3 className={`font-semibold transition-colors ${
+                        isPhotographer 
+                          ? 'text-gray-900 group-hover:text-rose-600' 
+                          : 'text-gray-500'
+                      }`}>
+                        {category.name}
+                      </h3>
+                      <p className={`text-sm mt-2 line-clamp-2 ${
+                        isPhotographer ? 'text-gray-600' : 'text-gray-400'
+                      }`}>
+                        {category.description || 'Wedding services'}
+                      </p>
+                    </div>
+                  </Link>
+                  
+                  {/* Coming Soon Badge for non-photographer categories */}
+                  {!isPhotographer && (
+                    <div className="absolute -top-2 -right-2">
+                      <span className="bg-amber-500 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">
+                        Segera Hadir
+                      </span>
+                    </div>
+                  )}
                 </div>
-              </Link>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
