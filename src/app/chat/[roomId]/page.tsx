@@ -1,14 +1,12 @@
 'use client'
 
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/hooks/useAuth'
 import { useChat } from '@/hooks/useChat'
-import { Message } from '@/types/database'
 import { supabase, performRealtimeHealthCheck, retryRealtimeConnection } from '@/lib/supabase'
-import { debugRealtimeConnection, testRealtimeWithMessage } from '@/utils/debugRealtime'
 
 export default function ChatRoomPage() {
   const params = useParams()
@@ -22,11 +20,13 @@ export default function ChatRoomPage() {
   const [sending, setSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
+  const [isMessagesLoaded, setIsMessagesLoaded] = useState(false)
   
   // Refs untuk prevent dependency loops
   const userIdRef = useRef<string | null>(null)
   const roomIdRef = useRef<string>(roomId)
   const isAuthenticatedRef = useRef<boolean>(false)
+  const loadedRoomIdRef = useRef<string | null>(null)
   
   // Update refs ketika values berubah
   useEffect(() => {
@@ -39,9 +39,32 @@ export default function ChatRoomPage() {
   const stableRoomId = useMemo(() => roomId, [roomId])
   const userId = useMemo(() => user?.id || null, [user?.id])
 
+  // Load messages function dengan debounce
+  const handleLoadMessages = useCallback(async (targetRoomId: string) => {
+    if (!userId || !targetRoomId) return
+    
+    // Prevent duplicate loads
+    if (loadedRoomIdRef.current === targetRoomId && isMessagesLoaded) {
+      console.log('📋 Messages already loaded for room:', targetRoomId)
+      return
+    }
+    
+    console.log('📞 Loading messages for room:', targetRoomId)
+    loadedRoomIdRef.current = targetRoomId
+    
+    try {
+      await loadMessages(targetRoomId)
+      setIsMessagesLoaded(true)
+    } catch (error) {
+      console.error('❌ Error loading messages:', error)
+      setIsMessagesLoaded(false)
+    }
+  }, [userId, loadMessages, isMessagesLoaded])
+
   // Auth check dan load messages - OPTIMIZED
   useEffect(() => {
-    console.log('🎯 Chat page effect triggered:', { authLoading, isAuthenticated, roomId })
+    console.log('🎯 Chat page effect triggered:', { authLoading, isAuthenticated, roomId, userId })
+    
     if (authLoading) return
     
     if (!isAuthenticated) {
@@ -50,21 +73,30 @@ export default function ChatRoomPage() {
     }
 
     // Only load messages once when conditions are met
-    if (roomId && isAuthenticated && userId) {
-      console.log('📞 Calling loadMessages with roomId:', roomId)
+    if (roomId && isAuthenticated && userId && !isMessagesLoaded) {
       const timeoutId = setTimeout(() => {
-        loadMessages(roomId)
-      }, 100) // Small delay to prevent rapid calls
+        handleLoadMessages(roomId)
+      }, 500) // Small delay to prevent rapid calls
       
       return () => clearTimeout(timeoutId)
     }
-  }, [authLoading, isAuthenticated, stableRoomId, userId, router]) // Remove loadMessages dependency
+  }, [authLoading, isAuthenticated, stableRoomId, userId, isMessagesLoaded, router, handleLoadMessages, roomId])
+
+  // Reset loaded state when room changes
+  useEffect(() => {
+    if (loadedRoomIdRef.current !== roomId) {
+      setIsMessagesLoaded(false)
+      loadedRoomIdRef.current = null
+    }
+  }, [roomId])
 
   // Monitor realtime connection status
   useEffect(() => {
     const checkConnectionStatus = () => {
       if (realtimeConnected) {
         setConnectionStatus('connected')
+      } else if (chatLoading) {
+        setConnectionStatus('connecting')
       } else {
         setConnectionStatus('disconnected')
       }
@@ -77,16 +109,21 @@ export default function ChatRoomPage() {
     const interval = setInterval(checkConnectionStatus, 5000)
 
     return () => clearInterval(interval)
-  }, [realtimeConnected])
+  }, [realtimeConnected, chatLoading])
 
   // Auto scroll ke bottom saat ada pesan baru
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (messages.length > 0) {
+      const timer = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [messages.length])
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!messageText.trim() || sending) return
+    if (!messageText.trim() || sending || !userId) return
 
     setSending(true)
     try {
@@ -97,8 +134,8 @@ export default function ChatRoomPage() {
           messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
         }, 100)
       }
-    } catch {
-      // Error handled silently
+    } catch (error) {
+      console.error('Error sending message:', error)
     } finally {
       setSending(false)
     }
@@ -123,24 +160,21 @@ export default function ChatRoomPage() {
   const handleDebugRealtime = async () => {
     if (process.env.NODE_ENV !== 'development') return
     
-    const debug = debugRealtimeConnection()
-    debug.checkConnectionStatus()
-    debug.testBasicConnection()
+    console.log('🔍 Running realtime debug...')
+    
+    // Basic connection test
+    const isConnected = supabase.realtime?.isConnected()
+    console.log('📡 Realtime connected:', isConnected)
+    
+    // Channel status
+    const channels = supabase.getChannels()
+    console.log('📺 Active channels:', channels.length)
+    channels.forEach(ch => {
+      console.log(`  - ${ch.topic}: ${ch.state}`)
+    })
     
     // Perform health check
     await performRealtimeHealthCheck()
-    
-    if (roomId) {
-      const stopMonitor = debug.monitorMessagesTable(roomId)
-      // Stop monitoring after 30 seconds
-      setTimeout(stopMonitor, 30000)
-    }
-  }
-
-  const handleTestRealtimeMessage = async () => {
-    if (process.env.NODE_ENV !== 'development' || !user?.id) return
-    
-    await testRealtimeWithMessage(roomId, user.id)
   }
 
   const handleRetryConnection = async () => {
@@ -148,13 +182,15 @@ export default function ChatRoomPage() {
     
     setConnectionStatus('connecting')
     
+    console.log('🔄 Manually retrying connection...')
     const success = await retryRealtimeConnection()
     
     if (success) {
       setConnectionStatus('connected')
       // Reload messages after reconnection
       setTimeout(() => {
-        loadMessages(roomId)
+        setIsMessagesLoaded(false)
+        handleLoadMessages(roomId)
       }, 1000)
     } else {
       setConnectionStatus('error')
@@ -164,209 +200,204 @@ export default function ChatRoomPage() {
   const handleNetworkDiagnostic = async () => {
     if (process.env.NODE_ENV !== 'development') return
     
+    console.log('🌐 Running network diagnostic...')
+    
     // Test basic fetch
     try {
-      await fetch('https://rufdjysbrykvrtxyqxtg.supabase.co/rest/v1/', {
+      const response = await fetch('https://rufdjysbrykvrtxyqxtg.supabase.co/rest/v1/', {
         headers: {
           'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
         }
       })
-      // Response logged in development only
-    } catch {
-      // Error handled silently
-    }
-    
-    // Test WebSocket connectivity
-    try {
-      const wsTest = new WebSocket('wss://rufdjysbrykvrtxyqxtg.supabase.co/realtime/v1/websocket?apikey=' + 
-        (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '') + '&vsn=1.0.0')
-      
-      wsTest.onopen = () => {
-        wsTest.close()
-      }
-      
-      wsTest.onerror = () => {
-        // Error handled silently
-      }
-      
-      wsTest.onclose = () => {
-        // Close handled silently
-      }
-      
-    } catch {
-      // Error handled silently
+      console.log('✅ REST API test:', response.status)
+    } catch (error) {
+      console.error('❌ REST API test failed:', error)
     }
     
     // Test auth
-    await supabase.auth.getSession()
-    // Auth data available in development only
+    try {
+      const { data: session } = await supabase.auth.getSession()
+      console.log('🔐 Auth session:', !!session.session)
+    } catch (error) {
+      console.error('❌ Auth test failed:', error)
+    }
   }
 
-  // Loading state
-  if (authLoading || (!isAuthenticated && authLoading)) {
+  const getConnectionStatusColor = () => {
+    switch (connectionStatus) {
+      case 'connected': return 'bg-green-500'
+      case 'connecting': return 'bg-yellow-500'
+      case 'disconnected': return 'bg-red-500'
+      case 'error': return 'bg-red-600'
+      default: return 'bg-gray-500'
+    }
+  }
+
+  const getConnectionStatusText = () => {
+    switch (connectionStatus) {
+      case 'connected': return 'Terhubung'
+      case 'connecting': return 'Menghubungkan...'
+      case 'disconnected': return 'Terputus'
+      case 'error': return 'Error'
+      default: return 'Unknown'
+    }
+  }
+
+  if (authLoading) {
     return (
       <AppLayout>
-        <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-gray-50">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500 mx-auto mb-4"></div>
-            <p className="text-gray-600">Memuat chat...</p>
-          </div>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
         </div>
       </AppLayout>
     )
   }
 
-  // Not authenticated
-  if (!isAuthenticated) {
-    return null
-  }
-
   return (
     <AppLayout>
-      <div className="h-[calc(100vh-80px)] flex flex-col bg-gray-50">
-        {/* Chat Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/chat"
-                className="text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </Link>
-              
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 rounded-full flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">V</span>
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-gray-900">Chat Room</h1>
-                  <div className="flex items-center space-x-2">
-                    <div className={`w-2 h-2 rounded-full ${
-                      connectionStatus === 'connected' ? 'bg-green-500' :
-                      connectionStatus === 'connecting' ? 'bg-yellow-500' :
-                      'bg-red-500'
-                    }`}></div>
-                    <span className="text-sm text-gray-500">
-                      {connectionStatus === 'connected' ? 'Online' :
-                       connectionStatus === 'connecting' ? 'Connecting...' :
-                       'Offline'}
-                    </span>
-                  </div>
-                </div>
-              </div>
+      <div className="max-w-4xl mx-auto px-4 py-8 h-screen flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-4">
+            <Link
+              href="/chat"
+              className="text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </Link>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Chat Room</h1>
+              <p className="text-sm text-gray-500">Room ID: {roomId}</p>
             </div>
-
-            {/* Debug Controls (development only) */}
-            {process.env.NODE_ENV === 'development' && (
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={handleDebugRealtime}
-                  className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
-                >
-                  Debug RT
-                </button>
-                <button
-                  onClick={handleTestRealtimeMessage}
-                  className="px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600"
-                >
-                  Test Msg
-                </button>
-                <button
-                  onClick={handleRetryConnection}
-                  className="px-3 py-1 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600"
-                >
-                  Retry
-                </button>
-                <button
-                  onClick={handleNetworkDiagnostic}
-                  className="px-3 py-1 bg-purple-500 text-white text-sm rounded hover:bg-purple-600"
-                >
-                  Network
-                </button> 
-              </div>
-            )}
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${getConnectionStatusColor()}`}></div>
+            <span className="text-sm text-gray-500">{getConnectionStatusText()}</span>
           </div>
         </div>
 
-        {/* Messages Container */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {(() => {
-            console.log('🖼️ Render state:', { chatLoading, messagesLength: messages.length, messages: messages.slice(0, 3) })
-            return null
-          })()}
-          {chatLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+        {/* Debug Panel (Development Only) */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 className="font-semibold text-blue-800 mb-2 text-sm">Debug Panel</h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleDebugRealtime}
+                className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Debug Realtime
+              </button>
+              <button
+                onClick={handleRetryConnection}
+                className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
+              >
+                Retry Connection
+              </button>
+              <button
+                onClick={handleNetworkDiagnostic}
+                className="px-2 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600"
+              >
+                Network Test
+              </button>
+              <button
+                onClick={() => {
+                  setIsMessagesLoaded(false)
+                  handleLoadMessages(roomId)
+                }}
+                className="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600"
+              >
+                Reload Messages
+              </button>
             </div>
-          ) : messages.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                <p className="text-gray-500">Belum ada pesan. Mulai percakapan!</p>
-              </div>
+          </div>
+        )}
+
+        {/* Messages Area */}
+        <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+          {chatLoading && !isMessagesLoaded ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
             </div>
           ) : (
             <>
-              {messages.map((message: Message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                    message.sender_id === user?.id
-                      ? 'bg-red-500 text-white'
-                      : 'bg-white text-gray-900 border'
-                  }`}>
-                    <p className="text-sm">{message.content}</p>
-                    <p className={`text-xs mt-1 ${
-                      message.sender_id === user?.id ? 'text-red-100' : 'text-gray-500'
-                    }`}>
-                      {formatTime(message.created_at)}
-                      {message.sender_id === user?.id && message.read_at && (
-                        <span className="ml-2">✓✓</span>
-                      )}
-                    </p>
+              {/* Messages List */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {messages.length === 0 ? (
+                  <div className="text-center text-gray-500 py-12">
+                    <svg className="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    <p>Belum ada pesan. Mulai percakapan!</p>
                   </div>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
+                ) : (
+                  messages.map((message) => {
+                    const isOwnMessage = message.sender_id === userId
+                    const senderName = message.sender?.full_name || 'Unknown'
+                    
+                    return (
+                      <div
+                        key={message.id}
+                        className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                            isOwnMessage
+                              ? 'bg-red-500 text-white'
+                              : 'bg-gray-100 text-gray-900'
+                          }`}
+                        >
+                          {!isOwnMessage && (
+                            <p className="text-xs font-semibold mb-1 opacity-70">
+                              {senderName}
+                            </p>
+                          )}
+                          <p className="text-sm">{message.content}</p>
+                          <p
+                            className={`text-xs mt-1 ${
+                              isOwnMessage ? 'text-red-100' : 'text-gray-500'
+                            }`}
+                          >
+                            {formatTime(message.created_at)}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Message Input */}
+              <div className="border-t border-gray-200 p-4">
+                <form onSubmit={handleSendMessage} className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Ketik pesan..."
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    disabled={sending || !realtimeConnected}
+                  />
+                  <button
+                    type="submit"
+                    disabled={sending || !messageText.trim() || !realtimeConnected}
+                    className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {sending ? 'Mengirim...' : 'Kirim'}
+                  </button>
+                </form>
+                {!realtimeConnected && (
+                  <p className="text-xs text-red-500 mt-2">
+                    Koneksi realtime terputus. Pesan mungkin tidak terkirim.
+                  </p>
+                )}
+              </div>
             </>
           )}
-        </div>
-
-        {/* Message Input */}
-        <div className="bg-white border-t border-gray-200 px-6 py-4">
-          <form onSubmit={handleSendMessage} className="flex items-center space-x-4">
-            <div className="flex-1">
-              <textarea
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Ketik pesan..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
-                rows={1}
-                disabled={sending}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={!messageText.trim() || sending}
-              className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {sending ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              )}
-            </button>
-          </form>
         </div>
       </div>
     </AppLayout>

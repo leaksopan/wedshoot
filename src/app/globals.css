@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ee8f8f;
-  --foreground: #171717;
+  --background: #ffffff;
+  --foreground: #1f2937;
 }
 
 @theme inline {
@@ -14,13 +14,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ef8989;
+    --background: #1f2937;
+    --foreground: #f585bd;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
+
+
+

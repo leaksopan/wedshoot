@@ -19,7 +19,7 @@ interface DebugInfo {
 }
 
 export const DebugAuth = () => {
-  const { isAuthenticated, user, profile, loading, error, clearCache } = useAuth()
+  const { isAuthenticated, user, profile, loading } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null)
 
@@ -40,7 +40,7 @@ export const DebugAuth = () => {
           hasProfile: !!profile,
           preferredRole: profile?.preferred_role,
           loading,
-          error
+          error: null
         },
         localStorage: typeof window !== 'undefined' ? {
           keys: Object.keys(localStorage).filter(key => key.includes('supabase'))
@@ -57,7 +57,6 @@ export const DebugAuth = () => {
 
   const handleClearCache = () => {
     clearSessionCache()
-    clearCache()
     setDebugInfo(null)
     alert('Cache cleared! Auth will reinitialize.')
   }

@@ -1,299 +1,356 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { AuthState, AuthUser, UserProfile } from '@/types/auth.types'
-import { initializeSession, clearSessionCache, clearSnapmeSessions, debugSessionState } from '@/utils/sessionUtils'
-import type { User } from '@supabase/supabase-js'
+import { UserProfile } from '@/types/auth.types'
+import { setUserSession, clearUserSession, hasValidUserSession } from '@/utils/sessionManager'
+
+interface AuthState {
+  user: User | null
+  profile: UserProfile | null
+  isAuthenticated: boolean
+  loading: boolean
+  sessionId: string | null
+}
 
 export const useAuth = () => {
   const [authState, setAuthState] = useState<AuthState>({
-    isAuthenticated: false,
     user: null,
     profile: null,
+    isAuthenticated: false,
     loading: true,
-    error: null
+    sessionId: null
   })
+  
+  const initializationRef = useRef(false)
+  const cleanupRef = useRef<(() => void) | null>(null)
+  const sessionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Convert Supabase User to AuthUser
-  const convertToAuthUser = (user: User | null): AuthUser | null => {
-    if (!user) return null
-    
-    return {
-      id: user.id,
-      email: user.email || '',
-      emailConfirmed: !!user.email_confirmed_at,
-      createdAt: user.created_at || ''
-    }
-  }
-
-  // Fetch user profile
-  const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
-    try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle() // Gunakan maybeSingle() instead of single()
-
-      if (error) {
-        // Handle specific PGRST116 error
-        if (error.code === 'PGRST116') {
-          console.warn(`User profile not found for userId: ${userId}`)
-          return null
-        }
-        console.error('Error fetching user profile:', error)
-        return null
-      }
-
-      return data
-    } catch (error) {
-      console.error('Error fetching user profile:', error)
-      return null
-    }
-  }
-
-  // Initialize auth state dengan session utilities - OPTIMIZED
-  const initializeAuth = useCallback(async () => {
-    try {
-      setAuthState(prev => ({ ...prev, loading: true, error: null }))
-
-      // Clear old snapme sessions first
-      clearSnapmeSessions()
-
-      // Skip debug in production untuk performa
-      if (process.env.NODE_ENV === 'development') {
-        await debugSessionState()
-      }
-
-      // Initialize session dengan error recovery
-      const session = await initializeSession()
-
-      // Jika tidak ada session, set state ke not authenticated (normal condition)
-      if (!session) {
-        setAuthState({
-          isAuthenticated: false,
-          user: null,
-          profile: null,
-          loading: false,
-          error: null
-        })
-        return
-      }
-
-      // Jika ada session tapi tidak ada user (edge case)
-      if (!session.user) {
-        console.warn('Session exists but no user found, clearing session')
-        clearSessionCache()
-        setAuthState({
-          isAuthenticated: false,
-          user: null,
-          profile: null,
-          loading: false,
-          error: null
-        })
-        return
-      }
-
-      // Session valid dengan user
-      const authUser = convertToAuthUser(session.user)
-
-      // Set authenticated state first untuk faster UI response
-      setAuthState({
-        isAuthenticated: true,
-        user: authUser,
-        profile: null, // Profile akan di-load async
-        loading: false,
-        error: null
-      })
-
-      // Load profile asynchronously untuk tidak block UI
-      fetchUserProfile(session.user.id)
-        .then(profile => {
-          if (profile) {
-            setAuthState(prev => ({ ...prev, profile }))
-          }
-        })
-        .catch(profileError => {
-          console.warn('Failed to fetch profile:', profileError)
-          // Retry sekali lagi setelah delay
-          setTimeout(async () => {
-            try {
-              const retryProfile = await fetchUserProfile(session.user.id)
-              if (retryProfile) {
-                setAuthState(prev => ({ ...prev, profile: retryProfile }))
-              }
-            } catch (retryError) {
-              console.warn('Profile fetch retry failed:', retryError)
-            }
-          }, 2000)
-        })
-
-    } catch (error) {
-      console.error('Auth initialization error:', error)
-
-      // Set ke not authenticated setelah error
-      setAuthState({
-        isAuthenticated: false,
-        user: null,
-        profile: null,
-        loading: false,
-        error: null // Jangan tampilkan error ke user untuk auth issues
-      })
+  // Cleanup session timeout
+  const clearSessionTimeout = useCallback(() => {
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current)
+      sessionTimeoutRef.current = null
     }
   }, [])
 
-  // Sign out dengan cleanup yang lebih baik
-  const signOut = async () => {
+  // Set session timeout untuk auto-cleanup
+  const setSessionTimeout = useCallback(() => {
+    clearSessionTimeout()
+    sessionTimeoutRef.current = setTimeout(() => {
+      console.log('🕐 Session timeout, clearing auth state')
+      setAuthState(prev => ({
+        ...prev,
+        user: null,
+        profile: null,
+        isAuthenticated: false,
+        sessionId: null
+      }))
+    }, 30 * 60 * 1000) // 30 minutes
+  }, [clearSessionTimeout])
+
+  // Load user profile with retry mechanism
+  const loadUserProfile = useCallback(async (userId: string, retryCount = 0): Promise<UserProfile | null> => {
+    const maxRetries = 3
+    
     try {
-      setAuthState(prev => ({ ...prev, loading: true }))
+      console.log(`👤 Loading profile for user: ${userId} (attempt ${retryCount + 1})`)
       
-      // Clear local storage terlebih dahulu
-      clearSessionCache()
-      clearSnapmeSessions()
+      const { data: profile, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+
+      if (error) {
+        if (error.code === 'PGRST116' && retryCount < maxRetries) {
+          console.log(`⚠️ Profile not found, retrying in ${(retryCount + 1) * 1000}ms...`)
+          await new Promise(resolve => setTimeout(resolve, (retryCount + 1) * 1000))
+          return loadUserProfile(userId, retryCount + 1)
+        }
+        
+        console.error('❌ Error loading profile:', error.message)
+        return null
+      }
+
+      return profile
+    } catch (err) {
+      console.error('❌ Exception loading profile:', err)
+      return null
+    }
+  }, [])
+
+  // Handle auth state change dengan improved error handling
+  const handleAuthStateChange = useCallback(async (event: string, session: Session | null) => {
+    console.log('🔄 Auth state change:', { event, hasSession: !!session, userId: session?.user?.id })
+    
+    try {
+      if (session?.user) {
+        setAuthState(prev => ({
+          ...prev,
+          loading: true
+        }))
+        
+        const profile = await loadUserProfile(session.user.id)
+        
+        const sessionId = session.access_token.substring(0, 10)
+        
+        setAuthState({
+          user: session.user,
+          profile,
+          isAuthenticated: true,
+          loading: false,
+          sessionId
+        })
+        
+        // Set session in session manager
+        setUserSession({
+          userId: session.user.id,
+          sessionId,
+          timestamp: Date.now(),
+          expiresAt: Date.now() + (30 * 60 * 1000), // 30 minutes
+          isActive: true
+        })
+        
+        setSessionTimeout()
+        
+        console.log('✅ Auth state updated:', {
+          userId: session.user.id,
+          email: session.user.email,
+          hasProfile: !!profile,
+          isVendor: profile?.is_vendor,
+          sessionValid: hasValidUserSession(session.user.id)
+        })
+      } else {
+        clearSessionTimeout()
+        clearUserSession() // Clear session manager
+        
+        setAuthState({
+          user: null,
+          profile: null,
+          isAuthenticated: false,
+          loading: false,
+          sessionId: null
+        })
+        
+        console.log('🚪 User signed out')
+      }
+    } catch (error) {
+      console.error('❌ Error in auth state change:', error)
+      setAuthState(prev => ({
+        ...prev,
+        loading: false
+      }))
+    }
+  }, [loadUserProfile, setSessionTimeout, clearSessionTimeout])
+
+  // Initialize auth dengan proper cleanup
+  const initializeAuth = useCallback(async () => {
+    if (initializationRef.current) {
+      console.log('⏭️ Auth already initializing, skipping...')
+      return
+    }
+    
+    initializationRef.current = true
+    console.log('🚀 Initializing auth...')
+    
+    try {
+      // Get initial session
+      const { data: { session }, error } = await supabase.auth.getSession()
+      
+      if (error) {
+        console.error('❌ Error getting session:', error.message)
+        setAuthState(prev => ({ ...prev, loading: false }))
+        return
+      }
+      
+      // Handle initial session
+      await handleAuthStateChange('INITIAL_SESSION', session)
+      
+      // Setup auth listener
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthStateChange)
+      
+      // Store cleanup function
+      cleanupRef.current = () => {
+        subscription.unsubscribe()
+        clearSessionTimeout()
+        console.log('🧹 Auth cleanup completed')
+      }
+      
+    } catch (error) {
+      console.error('❌ Auth initialization error:', error)
+      setAuthState(prev => ({ ...prev, loading: false }))
+    }
+  }, [handleAuthStateChange, clearSessionTimeout])
+
+  // Initialize auth on mount
+  useEffect(() => {
+    initializeAuth()
+    
+    // Setup session conflict listener - hanya log untuk now
+    const handleSessionConflict = () => {
+      console.log('🚨 Session conflict detected, clearing auth state...')
+      setAuthState({
+        user: null,
+        profile: null,
+        isAuthenticated: false,
+        loading: false,
+        sessionId: null
+      })
+    }
+    
+    const handleSessionTimeout = () => {
+      console.log('⏰ Session timeout, clearing auth state...')
+      setAuthState({
+        user: null,
+        profile: null,
+        isAuthenticated: false,
+        loading: false,
+        sessionId: null
+      })
+    }
+    
+    window.addEventListener('session-conflict', handleSessionConflict)
+    window.addEventListener('session-timeout', handleSessionTimeout)
+    
+    // Cleanup on unmount
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current()
+      }
+      window.removeEventListener('session-conflict', handleSessionConflict)
+      window.removeEventListener('session-timeout', handleSessionTimeout)
+    }
+  }, [initializeAuth])
+
+  // Sign in function
+  const signIn = useCallback(async (email: string, password: string) => {
+    console.log('🔐 Signing in user:', email)
+    
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    })
+
+    if (error) {
+      console.error('❌ Sign in error:', error.message)
+      throw error
+    }
+
+    return data
+  }, [])
+
+  // Sign up function
+  const signUp = useCallback(async (email: string, password: string, userData?: Partial<UserProfile>) => {
+    console.log('📝 Signing up user:', email)
+    
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: userData
+      }
+    })
+
+    if (error) {
+      console.error('❌ Sign up error:', error.message)
+      throw error
+    }
+
+    return data
+  }, [])
+
+  // Sign out function dengan proper cleanup
+  const signOut = useCallback(async () => {
+    console.log('🚪 Signing out user...')
+    
+    try {
+      clearSessionTimeout()
+      clearUserSession() // Clear session manager
       
       const { error } = await supabase.auth.signOut()
       
       if (error) {
-        console.error('Sign out error:', error)
-        // Walaupun ada error, tetap set ke unauthenticated
-        setAuthState({
-          isAuthenticated: false,
-          user: null,
-          profile: null,
-          loading: false,
-          error: null
-        })
-        // Force reload untuk memastikan cleanup
-        if (typeof window !== 'undefined') {
-          window.location.reload()
-        }
-        return { success: false, error: error.message }
+        console.error('❌ Sign out error:', error.message)
+        throw error
       }
-
+      
+      // Force clear auth state
       setAuthState({
-        isAuthenticated: false,
         user: null,
         profile: null,
+        isAuthenticated: false,
         loading: false,
-        error: null
+        sessionId: null
       })
-
-      return { success: true }
+      
+      console.log('✅ Sign out successful')
     } catch (error) {
-      console.error('Sign out error:', error)
-      // Force cleanup even on error
-      clearSessionCache()
-      clearSnapmeSessions()
-      setAuthState({
-        isAuthenticated: false,
-        user: null,
-        profile: null,
-        loading: false,
-        error: null
-      })
-      
-      // Force reload untuk memastikan cleanup
-      if (typeof window !== 'undefined') {
-        window.location.reload()
-      }
-      
-      return { success: false, error: 'Failed to sign out' }
+      console.error('❌ Sign out exception:', error)
+      throw error
     }
-  }
+  }, [clearSessionTimeout])
 
-  // Clear session cache manually dengan snapme cleanup
-  const clearCache = useCallback(() => {
-    clearSnapmeSessions()
-    clearSessionCache()
-    // Reinitialize auth after clearing cache
-    initializeAuth()
-  }, [initializeAuth])
-
-  // Refresh profile
+  // Refresh profile function
   const refreshProfile = useCallback(async () => {
-    if (!authState.user) return
-
-    const profile = await fetchUserProfile(authState.user.id)
-    setAuthState(prev => ({ ...prev, profile }))
-  }, [authState.user])
-
-  // Listen to auth changes - hanya dijalankan sekali saat mount
-  useEffect(() => {
-    let isMounted = true
+    if (!authState.user?.id) return null
     
-    const initialize = async () => {
-      if (isMounted) {
-        await initializeAuth()
-      }
+    console.log('🔄 Refreshing user profile...')
+    const profile = await loadUserProfile(authState.user.id)
+    
+    if (profile) {
+      setAuthState(prev => ({
+        ...prev,
+        profile
+      }))
     }
     
-    initialize()
+    return profile
+  }, [authState.user?.id, loadUserProfile])
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!isMounted) return
-        
-        if (event === 'SIGNED_IN' && session?.user) {
-          const authUser = convertToAuthUser(session.user)
-          
-          // Add retry mechanism for profile fetch
-          let profile = null
-          try {
-            profile = await fetchUserProfile(session.user.id)
-          } catch (profileError) {
-            console.warn('Failed to fetch profile on auth state change:', profileError)
-            // Try one more time after a short delay
-            setTimeout(async () => {
-              if (!isMounted) return
-              try {
-                const retryProfile = await fetchUserProfile(session.user.id)
-                if (retryProfile && isMounted) {
-                  setAuthState(prev => ({ ...prev, profile: retryProfile }))
-                }
-              } catch (retryError) {
-                console.warn('Profile fetch retry failed:', retryError)
-              }
-            }, 500)
-          }
-
-          if (isMounted) {
-            setAuthState({
-              isAuthenticated: true,
-              user: authUser,
-              profile,
-              loading: false,
-              error: null
-            })
-          }
-        } else if (event === 'SIGNED_OUT' && isMounted) {
-          setAuthState({
-            isAuthenticated: false,
-            user: null,
-            profile: null,
-            loading: false,
-            error: null
-          })
-        }
-      }
-    )
-
-    return () => {
-      isMounted = false
-      subscription.unsubscribe()
+  // Update profile function
+  const updateProfile = useCallback(async (updates: Partial<UserProfile>) => {
+    if (!authState.user?.id) {
+      throw new Error('No authenticated user')
     }
-  }, [initializeAuth]) // Include initializeAuth dependency
+    
+    console.log('💾 Updating user profile:', authState.user.id)
+    
+    const { data: updatedProfile, error } = await supabase
+      .from('user_profiles')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', authState.user.id)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('❌ Profile update error:', error.message)
+      throw error
+    }
+
+    // Update local state
+    setAuthState(prev => ({
+      ...prev,
+      profile: updatedProfile
+    }))
+
+    return updatedProfile
+  }, [authState.user?.id])
 
   return {
-    ...authState,
+    user: authState.user,
+    profile: authState.profile,
+    isAuthenticated: authState.isAuthenticated,
+    loading: authState.loading,
+    sessionId: authState.sessionId,
+    signIn,
+    signUp,
     signOut,
     refreshProfile,
-    clearCache,
-    // Helper computed properties
-    isClient: authState.profile?.is_client || false,
-    isVendor: authState.profile?.is_vendor || false,
-    preferredRole: authState.profile?.preferred_role || 'client',
-    isOnboardingCompleted: authState.profile?.onboarding_completed || false,
-    isProfileCompleted: authState.profile?.profile_completed || false
+    updateProfile
   }
 } 

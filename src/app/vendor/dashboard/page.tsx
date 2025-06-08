@@ -39,13 +39,13 @@ interface BookingData {
   status: string | null
   notes: string | null
   created_at: string | null
-  service: {
+  services: {
     name: string
   }
-  client: {
+  user_profiles: {
     full_name: string | null
     avatar_url: string | null
-  }
+  } | null
 }
 
 export default function VendorDashboardPage() {
@@ -91,19 +91,98 @@ export default function VendorDashboardPage() {
         setServices(servicesData || [])
       }
 
-      // Load bookings for vendor
-      const { data: bookingsData, error: bookingsError } = await supabase
+      // Load bookings for vendor with manual join
+      const { data: rawBookings, error: bookingsError } = await supabase
         .from('bookings')
-        .select(`
-          *,
-          service:services!inner(name),
-          client:user_profiles!client_id(full_name, avatar_url)
-        `)
+        .select('*')
         .eq('vendor_id', vendor.id)
         .order('created_at', { ascending: false })
 
-      if (!bookingsError) {
-        setBookings(bookingsData || [])
+      if (bookingsError) {
+        console.error('Bookings error:', bookingsError)
+        setBookings([])
+      } else if (rawBookings) {
+        // Get unique service IDs and client IDs
+        const serviceIds = [...new Set(rawBookings.map(b => b.service_id))]
+        const clientIds = [...new Set(rawBookings.map(b => b.client_id))]
+
+        console.log('Raw bookings:', rawBookings)
+        console.log('Client IDs to fetch:', clientIds)
+
+        // Fetch services data
+        const { data: servicesData } = await supabase
+          .from('services')
+          .select('id, name')
+          .in('id', serviceIds)
+
+        // Fetch user profiles data - try different approach
+        console.log('Attempting to fetch user profiles for IDs:', clientIds)
+        
+        // First try: using .in()
+        const { data: clientsData, error: clientsError } = await supabase
+          .from('user_profiles')
+          .select('id, full_name, avatar_url')
+          .in('id', clientIds)
+
+        console.log('Clients data fetched with .in():', clientsData)
+        console.log('Clients error:', clientsError)
+
+        // If .in() fails, try individual queries
+        let finalClientsData = clientsData
+        if (!clientsData || clientsData.length === 0) {
+          console.log('Trying individual queries for each client ID...')
+          const individualResults = []
+          
+          for (const clientId of clientIds) {
+            const { data: singleClient, error: singleError } = await supabase
+              .from('user_profiles')
+              .select('id, full_name, avatar_url')
+              .eq('id', clientId)
+              .single()
+              
+            console.log(`Individual query for ${clientId}:`, singleClient, singleError)
+            
+            if (singleClient && !singleError) {
+              individualResults.push(singleClient)
+            }
+          }
+          
+          finalClientsData = individualResults
+          console.log('Final clients data from individual queries:', finalClientsData)
+        }
+
+        // Map services and clients to objects for quick lookup
+        const servicesMap = (servicesData || []).reduce((acc, service) => {
+          acc[service.id] = service
+          return acc
+        }, {} as Record<string, { id: string; name: string }>)
+
+        const clientsMap = (finalClientsData || []).reduce((acc, client) => {
+          acc[client.id] = client
+          return acc
+        }, {} as Record<string, { id: string; full_name: string | null; avatar_url: string | null }>)
+
+        console.log('Clients map:', clientsMap)
+
+        // Combine booking data with related data
+        const enrichedBookings = rawBookings.map(booking => ({
+          ...booking,
+          services: servicesMap[booking.service_id] || { name: 'Unknown Service' },
+          user_profiles: clientsMap[booking.client_id] || null
+        }))
+
+        console.log('Enriched bookings data:', enrichedBookings)
+        
+        // Additional debug - check specific bookings
+        enrichedBookings.forEach((booking, index) => {
+          console.log(`Booking ${index + 1}:`, {
+            client_id: booking.client_id,
+            client_name_from_booking: booking.client_name,
+            user_profile_data: booking.user_profiles,
+            final_display_name: booking.user_profiles?.full_name || booking.client_name || 'Unknown Client'
+          })
+        })
+        setBookings(enrichedBookings)
       }
 
     } catch (error) {
@@ -291,12 +370,12 @@ export default function VendorDashboardPage() {
                 >
                   + Tambah Service
                 </Link>
-                <Link
-                  href="/vendor/services"
+                <button
+                  onClick={() => setActiveTab('services')}
                   className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 transition-colors font-medium"
                 >
                   Kelola Services
-                </Link>
+                </button>
                 <button
                   onClick={handleSignOut}
                   className="text-red-600 hover:text-red-800 px-4 py-2 font-medium"
@@ -459,9 +538,9 @@ export default function VendorDashboardPage() {
                       <div key={booking.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
                         <div>
                           <p className="font-medium text-gray-900">
-                            {booking.client?.full_name || booking.client_name || 'Unknown Client'}
+                            {booking.user_profiles?.full_name || booking.client_name || 'Unknown Client'}
                           </p>
-                          <p className="text-sm text-gray-600">{booking.service.name}</p>
+                          <p className="text-sm text-gray-600">{booking.services.name}</p>
                           <p className="text-xs text-gray-500">
                             {booking.booking_dates.map(date => formatDate(date)).join(', ')}
                           </p>
@@ -565,13 +644,13 @@ export default function VendorDashboardPage() {
                               <div className="flex-shrink-0 h-10 w-10">
                                 <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
                                   <span className="text-sm font-medium text-gray-700">
-                                    {(booking.client?.full_name || booking.client_name || 'U').charAt(0).toUpperCase()}
+                                    {(booking.user_profiles?.full_name || booking.client_name || 'U').charAt(0).toUpperCase()}
                                   </span>
                                 </div>
                               </div>
                               <div className="ml-4">
                                 <div className="text-sm font-medium text-gray-900">
-                                  {booking.client?.full_name || booking.client_name || 'Unknown Client'}
+                                  {booking.user_profiles?.full_name || booking.client_name || 'Unknown Client'}
                                 </div>
                                 <div className="text-sm text-gray-500">
                                   {booking.client_email}
@@ -580,7 +659,7 @@ export default function VendorDashboardPage() {
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{booking.service.name}</div>
+                            <div className="text-sm text-gray-900">{booking.services.name}</div>
                             <div className="text-sm text-gray-500">Qty: {booking.quantity}</div>
                           </td>
                           <td className="px-6 py-4">

@@ -32,7 +32,7 @@ interface BookingData {
 }
 
 export default function ClientBookingsPage() {
-  const { isAuthenticated, user, profile, loading: authLoading, preferredRole } = useAuth()
+  const { isAuthenticated, user, profile, loading: authLoading } = useAuth()
   const [bookings, setBookings] = useState<BookingData[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled'>('all')
@@ -125,7 +125,7 @@ export default function ClientBookingsPage() {
   }
 
   // Check authentication and role after loading is complete
-  if (!isAuthenticated || preferredRole !== 'client') {
+  if (!isAuthenticated) {
     return (
       <AppLayout>
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -138,7 +138,6 @@ export default function ClientBookingsPage() {
                   <strong>Debug Info:</strong><br/>
                   Auth Loading: {authLoading ? 'Yes' : 'No'}<br/>
                   Authenticated: {isAuthenticated ? 'Yes' : 'No'}<br/>
-                  Role: {preferredRole || 'None'}<br/>
                   Profile loaded: {profile ? 'Yes' : 'No'}<br/>
                   User ID: {user?.id || 'None'}<br/>
                   Profile ID: {profile?.id || 'None'}

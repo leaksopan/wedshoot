@@ -12,7 +12,6 @@ import { perfMonitor, trackDatabaseQuery } from '@/utils/performance'
 
 // Lazy load heavy components untuk mengurangi initial bundle size
 const BookingCalendar = lazy(() => import('@/components/BookingCalendar'))
-const ChatModal = lazy(() => import('@/components/ChatModal'))
 
 interface ServiceDetail {
   id: string
@@ -144,8 +143,7 @@ export default function ServiceDetailPage() {
   const [selectedDates, setSelectedDates] = useState<Date[]>([])
   const [bookingLoading, setBookingLoading] = useState(false)
   
-  // Chat states
-  const [showChatModal, setShowChatModal] = useState(false)
+
 
   const loadServiceDetail = useCallback(async () => {
     try {
@@ -372,7 +370,19 @@ export default function ServiceDetailPage() {
       return
     }
 
-    setShowChatModal(true)
+    // Redirect langsung ke halaman chat dengan parameter vendor
+    const vendorInfo = {
+      id: service?.vendor.id,
+      user_id: service?.vendor.user_id,
+      name: service?.vendor.business_name,
+      service: service?.name
+    }
+
+    // Store vendor info in sessionStorage untuk di-pickup oleh chat page
+    sessionStorage.setItem('pendingVendorChat', JSON.stringify(vendorInfo))
+    
+    // Redirect ke chat page
+    router.push('/chat')
   }
 
   if (loading) {
@@ -395,12 +405,12 @@ export default function ServiceDetailPage() {
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Service Not Found</h2>
             <p className="text-gray-600 mb-6">The service you&apos;re looking for doesn&apos;t exist or has been removed.</p>
-            <Link
-              href="/services"
-              className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Browse All Services
-            </Link>
+                          <Link
+                href="/services"
+                className="bg-rose-500 text-white px-6 py-3 rounded-md hover:bg-rose-600 transition-colors"
+              >
+                Browse All Services
+              </Link>
           </div>
         </div>
       </AppLayout>
@@ -415,11 +425,11 @@ export default function ServiceDetailPage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <nav className="text-sm">
               <ol className="flex items-center space-x-2 text-gray-500">
-                <li><Link href="/" className="hover:text-blue-600">Home</Link></li>
+                <li><Link href="/" className="hover:text-rose-600">Home</Link></li>
                 <li>›</li>
-                <li><Link href="/services" className="hover:text-blue-600">Services</Link></li>
+                <li><Link href="/services" className="hover:text-rose-600">Services</Link></li>
                 <li>›</li>
-                <li><Link href={`/categories/${service.category.slug}`} className="hover:text-blue-600">{service.category.name}</Link></li>
+                <li><Link href={`/categories/${service.category.slug}`} className="hover:text-rose-600">{service.category.name}</Link></li>
                 <li>›</li>
                 <li className="text-gray-900 font-medium">{service.name}</li>
               </ol>
@@ -437,16 +447,16 @@ export default function ServiceDetailPage() {
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">{service.name}</h1>
                 <p className="text-gray-600">
-                  by <Link href={`/vendors/${service.vendor.id}`} className="text-blue-600 hover:text-blue-700">{service.vendor.business_name}</Link> — {service.category.name}
+                  by <Link href={`/vendors/${service.vendor.id}`} className="text-rose-600 hover:text-rose-700">{service.vendor.business_name}</Link> — {service.category.name}
                 </p>
               </div>
             </div>
             
             {/* Tags */}
             <div className="flex items-center space-x-2 mb-6">
-              <span className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">wedding</span>
-              <span className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">photography</span>
-              <span className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">cinematic</span>
+              <span className="text-sm text-rose-700 bg-rose-50 px-3 py-1 rounded-full border border-rose-200">wedding</span>
+              <span className="text-sm text-rose-700 bg-rose-50 px-3 py-1 rounded-full border border-rose-200">photography</span>
+              <span className="text-sm text-rose-700 bg-rose-50 px-3 py-1 rounded-full border border-rose-200">cinematic</span>
             </div>
           </div>
 
@@ -526,19 +536,19 @@ export default function ServiceDetailPage() {
             {/* Left Column - Content (2/3) */}
             <div className="lg:col-span-2 space-y-8">
               {/* Description */}
-              <div className="bg-white rounded-lg p-6 shadow-sm">
+              <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 hover:border-rose-200 transition-colors">
                 <h2 className="text-xl font-semibold text-gray-900 mb-4">Deskripsi</h2>
                 <p className="text-gray-700 leading-relaxed">{service.description}</p>
               </div>
 
               {/* What's Included */}
               {service.includes.length > 0 && (
-                <div className="bg-white rounded-lg p-6 shadow-sm">
+                <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 hover:border-rose-200 transition-colors">
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">What&apos;s Included</h2>
                   <ul className="space-y-2">
                     {service.includes.map((item, index) => (
                       <li key={index} className="flex items-start">
-                        <svg className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-emerald-500 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                         <span className="text-gray-700">{item}</span>
@@ -550,12 +560,12 @@ export default function ServiceDetailPage() {
 
               {/* What's Excluded */}
               {service.excludes.length > 0 && (
-                <div className="bg-white rounded-lg p-6 shadow-sm">
+                <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 hover:border-rose-200 transition-colors">
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">What&apos;s Not Included</h2>
                   <ul className="space-y-2">
                     {service.excludes.map((item, index) => (
                       <li key={index} className="flex items-start">
-                        <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-rose-500 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                         <span className="text-gray-700">{item}</span>
@@ -566,7 +576,7 @@ export default function ServiceDetailPage() {
               )}
 
               {/* Service Details */}
-              <div className="bg-white rounded-lg p-6 shadow-sm">
+              <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 hover:border-rose-200 transition-colors">
                 <h2 className="text-xl font-semibold text-gray-900 mb-4">Detail Layanan</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {service.duration && (
@@ -598,17 +608,17 @@ export default function ServiceDetailPage() {
 
               {/* Terms & Conditions */}
               {service.terms_conditions && (
-                <div className="bg-white rounded-lg p-6 shadow-sm">
+                <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 hover:border-rose-200 transition-colors">
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">Syarat & Ketentuan</h2>
                   <p className="text-gray-700 text-sm leading-relaxed">{service.terms_conditions}</p>
                 </div>
               )}
 
               {/* Vendor Info */}
-              <div className="bg-white rounded-lg p-6 shadow-sm">
+              <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 hover:border-rose-200 transition-colors">
                 <h2 className="text-xl font-semibold text-gray-900 mb-4">Tentang Vendor</h2>
                 <div className="flex items-start space-x-4">
-                  <div className="w-16 h-16 bg-black rounded-full flex items-center justify-center">
+                  <div className="w-16 h-16 bg-gradient-to-br from-rose-500 to-pink-600 rounded-full flex items-center justify-center">
                     <span className="text-white font-bold text-xl">
                       {service.vendor.business_name.charAt(0)}
                     </span>
@@ -656,7 +666,7 @@ export default function ServiceDetailPage() {
                   <div className="flex items-center border rounded-md">
                     <button
                       onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                      className="p-2 hover:bg-gray-100"
+                      className="p-2 hover:bg-gray-100 text-gray-600 hover:text-gray-900"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
@@ -666,12 +676,12 @@ export default function ServiceDetailPage() {
                       type="number"
                       value={quantity}
                       onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="flex-1 text-center border-0 focus:ring-0 focus:outline-none"
+                      className="flex-1 text-center border-0 focus:ring-0 focus:outline-none text-gray-900 bg-white"
                       min="1"
                     />
                     <button
                       onClick={() => setQuantity(quantity + 1)}
-                      className="p-2 hover:bg-gray-100"
+                      className="p-2 hover:bg-gray-100 text-gray-600 hover:text-gray-900"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -708,20 +718,20 @@ export default function ServiceDetailPage() {
                   <div className="bg-gray-50 rounded-lg p-4">
                     <div className="flex justify-between text-sm mb-2">
                       <span className="text-gray-600">Harga per hari:</span>
-                      <span className="font-medium">Rp {service.price.toLocaleString('id-ID')}</span>
+                      <span className="font-medium text-gray-900">Rp {service.price.toLocaleString('id-ID')}</span>
                     </div>
                     <div className="flex justify-between text-sm mb-2">
                       <span className="text-gray-600">Jumlah:</span>
-                      <span className="font-medium">{quantity}x</span>
+                      <span className="font-medium text-gray-900">{quantity}x</span>
                     </div>
                     <div className="flex justify-between text-sm mb-2">
                       <span className="text-gray-600">Tanggal terpilih:</span>
-                      <span className="font-medium">{selectedDates.length} hari</span>
+                      <span className="font-medium text-gray-900">{selectedDates.length} hari</span>
                     </div>
                     <div className="border-t pt-2 mt-2">
                       <div className="flex justify-between text-lg font-bold">
-                        <span>Total:</span>
-                        <span>Rp {(service.price * quantity * selectedDates.length).toLocaleString('id-ID')}</span>
+                        <span className="text-gray-900">Total:</span>
+                        <span className="text-gray-900">Rp {(service.price * quantity * selectedDates.length).toLocaleString('id-ID')}</span>
                       </div>
                     </div>
                   </div>
@@ -735,14 +745,14 @@ export default function ServiceDetailPage() {
                     className={`w-full py-3 rounded-lg font-medium transition-colors ${
                       selectedDates.length === 0
                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        : 'bg-red-500 text-white hover:bg-red-600'
+                        : 'bg-rose-500 text-white hover:bg-rose-600'
                     }`}
                   >
                     {selectedDates.length === 0 ? 'Pilih Tanggal Terlebih Dahulu' : 'Pesan Sekarang'}
                   </button>
                   <button 
                     onClick={handleContactVendor}
-                    className="w-full border border-red-500 text-red-500 py-3 rounded-lg font-medium hover:bg-red-50 transition-colors flex items-center justify-center"
+                    className="w-full border border-rose-500 text-rose-500 py-3 rounded-lg font-medium hover:bg-rose-50 transition-colors flex items-center justify-center"
                   >
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -800,7 +810,7 @@ export default function ServiceDetailPage() {
               <button
                 onClick={handleBookingSubmit}
                 disabled={bookingLoading}
-                className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 flex items-center"
+                className="px-6 py-2 bg-rose-500 text-white rounded-lg hover:bg-rose-600 disabled:opacity-50 flex items-center"
               >
                 {bookingLoading ? (
                   <>
@@ -816,24 +826,7 @@ export default function ServiceDetailPage() {
         </div>
       )}
 
-      {/* Chat Modal */}
-      {showChatModal && service && (
-        <Suspense fallback={
-          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-            <div className="bg-white rounded-xl w-full max-w-lg h-[600px] flex items-center justify-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
-            </div>
-          </div>
-        }>
-          <ChatModal
-            isOpen={showChatModal}
-            onClose={() => setShowChatModal(false)}
-            vendorId={service.vendor.user_id}
-            vendorName={service.vendor.business_name}
-            serviceName={service.name}
-          />
-        </Suspense>
-      )}
+
     </AppLayout>
   )
 } 

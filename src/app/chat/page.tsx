@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AppLayout } from '@/components/AppLayout'
@@ -12,15 +12,17 @@ import { clearSnapmeSessions, resetApplication, debugStorageKeys, forceFixStuckS
 export default function ChatListPage() {
   const router = useRouter()
   const { isAuthenticated, user, profile, loading: authLoading, signOut } = useAuth()
-  const { chatRooms, loading, loadChatRooms, realtimeConnected, cleanupConnections } = useChat()
+  const { chatRooms, loading, loadChatRooms, realtimeConnected, cleanupConnections, getOrCreateChatRoom } = useChat()
   const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
-  const hasLoadedOnceRef = useRef(false) // Add flag to prevent multiple loads
+  const [hasLoadedRooms, setHasLoadedRooms] = useState(false)
+  const [processingVendorChat, setProcessingVendorChat] = useState(false)
   
   // Refs untuk prevent dependency loops
   const userIdRef = useRef<string | null>(null)
   const isAuthenticatedRef = useRef<boolean>(false)
   const isInitializedRef = useRef<boolean>(false)
+  const loadingInitiatedRef = useRef<boolean>(false)
   
   // Update refs ketika values berubah
   useEffect(() => {
@@ -32,6 +34,63 @@ export default function ChatListPage() {
   // Memoize stable values
   const userId = useMemo(() => user?.id || null, [user?.id])
   const hasUser = useMemo(() => !!user, [user])
+
+  // Load chat rooms dengan debounce
+  const handleLoadChatRooms = useCallback(async () => {
+    if (!isAuthenticated || !hasUser || loadingInitiatedRef.current || hasLoadedRooms) {
+      console.log('🚫 Skipping chat rooms load:', { 
+        isAuthenticated, 
+        hasUser, 
+        loadingInitiated: loadingInitiatedRef.current,
+        hasLoadedRooms 
+      })
+      return
+    }
+
+    loadingInitiatedRef.current = true
+    console.log('🔄 Loading chat rooms...')
+    
+    try {
+      await loadChatRooms()
+      setHasLoadedRooms(true)
+    } catch (error) {
+      console.error('❌ Error loading chat rooms:', error)
+    } finally {
+      loadingInitiatedRef.current = false
+    }
+  }, [isAuthenticated, hasUser, loadChatRooms, hasLoadedRooms])
+
+  // Handle pending vendor chat dari sessionStorage
+  const handlePendingVendorChat = useCallback(async () => {
+    if (!isAuthenticated || !user?.id || processingVendorChat) return
+
+    const pendingVendorData = sessionStorage.getItem('pendingVendorChat')
+    if (!pendingVendorData) return
+
+    try {
+      setProcessingVendorChat(true)
+      const vendorInfo = JSON.parse(pendingVendorData)
+      
+      console.log('🎯 Processing pending vendor chat:', vendorInfo)
+      
+      // Clear dari sessionStorage
+      sessionStorage.removeItem('pendingVendorChat')
+      
+      // Gunakan vendor.id untuk create/get chat room
+      const roomId = await getOrCreateChatRoom(vendorInfo.id)
+      
+      if (roomId) {
+        // Redirect ke chat room
+        router.push(`/chat/${roomId}`)
+      }
+    } catch (error) {
+      console.error('❌ Error processing pending vendor chat:', error)
+      // Clear invalid data
+      sessionStorage.removeItem('pendingVendorChat')
+    } finally {
+      setProcessingVendorChat(false)
+    }
+  }, [isAuthenticated, user?.id, processingVendorChat, getOrCreateChatRoom, router])
 
   useEffect(() => {
     // Clear old snapme sessions on page load
@@ -46,19 +105,24 @@ export default function ChatListPage() {
     }
     
     if (!isAuthenticated) {
-      // Reset load flag ketika logout
-      hasLoadedOnceRef.current = false
+      // Reset states ketika logout
+      setHasLoadedRooms(false)
+      loadingInitiatedRef.current = false
       // Clean up connections sebelum redirect
       cleanupConnections?.()
       router.push('/login')
       return
     }
 
-    // Load chat rooms hanya sekali setelah authenticated - MANUAL CALL to prevent loops
-    if (isAuthenticated && hasUser && !loading && isInitialized && !hasLoadedOnceRef.current) {
-      console.log('🔄 Manually loading chat rooms from chat page (ONCE)...')
-      hasLoadedOnceRef.current = true
-      loadChatRooms()
+    // Load chat rooms hanya sekali setelah authenticated
+    if (isAuthenticated && hasUser && isInitialized && !hasLoadedRooms && !loading) {
+      const timeoutId = setTimeout(() => {
+        handleLoadChatRooms()
+        // Check for pending vendor chat setelah load rooms
+        handlePendingVendorChat()
+      }, 1000) // Delay untuk stabilitas
+      
+      return () => clearTimeout(timeoutId)
     }
 
     // Cleanup function
@@ -67,7 +131,17 @@ export default function ChatListPage() {
         cleanupConnections?.()
       }
     }
-  }, [authLoading, isAuthenticated, userId, isInitialized, loading]) // Removed loadChatRooms to prevent loops
+  }, [authLoading, isAuthenticated, userId, isInitialized, hasLoadedRooms, loading, hasUser, router, cleanupConnections, handleLoadChatRooms, handlePendingVendorChat])
+
+  // Reset loaded state when user changes
+  useEffect(() => {
+    const currentUserId = user?.id
+    if (userIdRef.current !== currentUserId) {
+      setHasLoadedRooms(false)
+      loadingInitiatedRef.current = false
+      setIsInitialized(false)
+    }
+  }, [user?.id])
 
   const formatTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleDateString('id-ID', {
@@ -93,6 +167,8 @@ export default function ChatListPage() {
       profile: profile ? { is_vendor: profile.is_vendor, full_name: profile.full_name } : null,
       chatRoomsCount: chatRooms.length,
       realtimeConnected,
+      hasLoadedRooms,
+      loadingInitiated: loadingInitiatedRef.current,
       localStorage: debugStorageKeys()
     }
     setDebugInfo(info)
@@ -125,11 +201,24 @@ export default function ChatListPage() {
     window.location.reload()
   }
 
-  if (authLoading) {
+  const handleReloadRooms = () => {
+    if (process.env.NODE_ENV !== 'development') return
+    
+    setHasLoadedRooms(false)
+    loadingInitiatedRef.current = false
+    handleLoadChatRooms()
+  }
+
+  if (authLoading || processingVendorChat) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500 mx-auto mb-4"></div>
+            <p className="text-gray-600">
+              {authLoading ? 'Loading...' : 'Memulai chat dengan vendor...'}
+            </p>
+          </div>
         </div>
       </AppLayout>
     )
@@ -148,7 +237,7 @@ export default function ChatListPage() {
           <div className="flex items-center space-x-2">
             <div className={`w-3 h-3 rounded-full ${realtimeConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
             <span className="text-sm text-gray-500">
-              {realtimeConnected ? 'Connected' : 'Disconnected'}
+              {realtimeConnected ? 'Terhubung' : 'Terputus'}
             </span>
           </div>
         </div>
@@ -182,6 +271,12 @@ export default function ChatListPage() {
               >
                 Fix Stuck Session
               </button>
+              <button
+                onClick={handleReloadRooms}
+                className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
+              >
+                Reload Rooms
+              </button>
             </div>
             {debugInfo && (
               <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">
@@ -193,9 +288,12 @@ export default function ChatListPage() {
 
         {/* Chat Rooms List */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          {loading ? (
+          {(loading && !hasLoadedRooms) ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500 mx-auto mb-4"></div>
+                <p className="text-gray-600">Memuat chat rooms...</p>
+              </div>
             </div>
           ) : chatRooms.length === 0 ? (
             <div className="text-center py-12">

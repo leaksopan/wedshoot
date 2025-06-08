@@ -53,7 +53,7 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
     }
 
     try {
-      const roomId = await getOrCreateChatRoom(currentVendorId, vendorName, serviceName)
+      const roomId = await getOrCreateChatRoom(currentVendorId)
       if (roomId) {
         setRoomId(roomId)
         await loadMessages(roomId)
@@ -61,14 +61,14 @@ const ChatModal = ({ isOpen, onClose, vendorId, vendorName, serviceName }: ChatM
     } catch (error) {
       console.error('Failed to initialize chat room:', error)
     }
-  }, [getOrCreateChatRoom, loadMessages, router, vendorName, serviceName]) // Added vendorName and serviceName dependencies
+  }, [getOrCreateChatRoom, loadMessages, router])
 
   // Initialize chat room ketika modal dibuka - OPTIMIZED
   useEffect(() => {
     if (isOpen && user?.id && vendorId) {
       initializeChatRoom()
     }
-  }, [isOpen, user?.id, modalProps.vendorId, initializeChatRoom]) // Stable dependencies
+  }, [isOpen, user?.id, vendorId, initializeChatRoom])
 
   // Auto scroll ke pesan terbaru
   useEffect(() => {

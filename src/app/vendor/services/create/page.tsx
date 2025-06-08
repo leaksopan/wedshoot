@@ -175,51 +175,159 @@ export default function CreateServicePage() {
     return `service-${timestamp}-${random}.${extension}`
   }
 
+  const verifyImageFile = async (file: File): Promise<boolean> => {
+    try {
+      // Read first few bytes untuk verify magic number
+      const arrayBuffer = await file.slice(0, 8).arrayBuffer()
+      const bytes = new Uint8Array(arrayBuffer)
+      
+      // Check untuk PNG signature (89 50 4E 47)
+      if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+        console.log('✅ Valid PNG file detected')
+        return true
+      }
+      
+      // Check untuk JPEG signature (FF D8)
+      if (bytes[0] === 0xFF && bytes[1] === 0xD8) {
+        console.log('✅ Valid JPEG file detected')
+        return true
+      }
+      
+      // Check untuk WebP signature (RIFF...WEBP)
+      if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+        console.log('✅ Valid WebP file detected')
+        return true
+      }
+      
+      console.log('🔴 File magic number check failed:', Array.from(bytes).map(b => b.toString(16)).join(' '))
+      return false
+    } catch (error) {
+      console.error('🔴 Error verifying file:', error)
+      return false
+    }
+  }
+
   const uploadImageToStorage = async (file: File): Promise<string> => {
     const fileName = generateUniqueFileName(file.name)
     const filePath = `services/${fileName}`
 
-    const { error: uploadError } = await supabase.storage
-      .from('images')
-      .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: false
-      })
+    console.log('🔵 Starting upload:', {
+      fileName,
+      filePath,
+      fileType: file.type,
+      fileSize: file.size,
+      fileConstructor: file.constructor.name
+    })
 
-    if (uploadError) {
-      throw new Error(`Upload failed: ${uploadError.message}`)
+    // Check user session
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      throw new Error('User not authenticated')
     }
 
-    const { data: urlData } = supabase.storage
-      .from('images')
-      .getPublicUrl(filePath)
+    try {
+      // Verify file is valid image
+      const isValidImage = await verifyImageFile(file)
+      if (!isValidImage) {
+        throw new Error('File bukan gambar yang valid atau corrupted')
+      }
 
-    return urlData.publicUrl
+      // Convert File to ArrayBuffer untuk memastikan binary data
+      const arrayBuffer = await file.arrayBuffer()
+      console.log('🔵 ArrayBuffer created:', {
+        byteLength: arrayBuffer.byteLength,
+        expectedSize: file.size
+      })
+
+      // Debug: Log first few bytes of ArrayBuffer
+      const firstBytes = new Uint8Array(arrayBuffer.slice(0, 16))
+      console.log('🔵 First 16 bytes:', Array.from(firstBytes).map(b => b.toString(16).padStart(2, '0')).join(' '))
+
+      // Upload menggunakan ArrayBuffer
+      const { error: uploadError, data } = await supabase.storage
+        .from('images')
+        .upload(filePath, arrayBuffer, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type || 'image/png'
+        })
+
+      if (uploadError) {
+        console.error('🔴 Upload error:', uploadError)
+        throw new Error(`Upload failed: ${uploadError.message}`)
+      }
+
+      console.log('🟢 Upload successful:', data)
+
+      const { data: urlData } = supabase.storage
+        .from('images')
+        .getPublicUrl(filePath)
+
+      console.log('🔵 Public URL generated:', urlData.publicUrl)
+      return urlData.publicUrl
+
+    } catch (error) {
+      console.error('🔴 Upload process error:', error)
+      throw error
+    }
   }
 
   const handleFileSelect = async (files: FileList) => {
     const fileArray = Array.from(files)
-    const imageFiles = fileArray.filter(file => file.type.startsWith('image/'))
+    
+    console.log('🔵 Files received:', fileArray.length)
+    
+    // Validate files
+    const validFiles = fileArray.filter(file => {
+      console.log('🔍 Checking file:', {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: file.lastModified,
+        constructor: file.constructor.name,
+        isFile: file instanceof File
+      })
+      
+             // Pastikan ini benar-benar File object
+       if (!(file instanceof File)) {
+         console.error('🔴 Not a valid File object:', file)
+         alert('File tidak valid')
+         return false
+       }
+      
+      // Check file extension if MIME type is missing
+      const fileExtension = file.name.toLowerCase().split('.').pop()
+      const validExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+      
+      const isValidType = file.type.startsWith('image/') || validExtensions.includes(fileExtension || '')
+      
+      if (!isValidType) {
+        alert(`${file.name} bukan file gambar yang valid. Gunakan format: JPG, PNG, WEBP, atau GIF`)
+        return false
+      }
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        alert(`${file.name} terlalu besar. Maksimal 5MB per file`)
+        return false
+      }
+      if (file.size === 0) {
+        alert(`${file.name} adalah file kosong`)
+        return false
+      }
+      
+      console.log('✅ File valid:', file.name)
+      return true
+    })
 
-    if (imageFiles.length === 0) {
-      alert('Harap pilih file gambar yang valid!')
-      return
-    }
+    if (validFiles.length === 0) return
 
-    // Check file size (max 5MB per file)
-    const oversizedFiles = imageFiles.filter(file => file.size > 5 * 1024 * 1024)
-    if (oversizedFiles.length > 0) {
-      alert('Ukuran file terlalu besar! Maksimal 5MB per file.')
-      return
-    }
-
-    // Add to uploaded images with preview
-    const newImages: UploadedImage[] = imageFiles.map(file => ({
+    // Add to uploaded images state
+    const newImages: UploadedImage[] = validFiles.map(file => ({
       file,
       preview: URL.createObjectURL(file),
       uploading: false
     }))
 
+    console.log('🔵 Added valid files:', newImages.length)
     setUploadedImages(prev => [...prev, ...newImages])
   }
 

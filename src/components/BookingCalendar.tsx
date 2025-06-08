@@ -151,7 +151,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
       case 'blocked':
         return 'bg-gray-400 text-white cursor-not-allowed'
       case 'available':
-        return 'bg-white border border-gray-300 hover:bg-blue-50 cursor-pointer'
+        return 'bg-white border border-gray-300 hover:bg-rose-50 cursor-pointer text-gray-900'
       default:
         return 'bg-gray-100 text-gray-400 cursor-not-allowed'
     }
@@ -226,7 +226,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
         <div className="flex items-center justify-between mb-2">
           <button
             onClick={() => navigateMonth('prev')}
-            className="p-1 hover:bg-gray-100 rounded-full"
+            className="p-1 hover:bg-gray-100 rounded-full text-gray-600 hover:text-gray-900"
             aria-label="Previous month"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -240,7 +240,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
           
           <button
             onClick={() => navigateMonth('next')}
-            className="p-1 hover:bg-gray-100 rounded-full"
+            className="p-1 hover:bg-gray-100 rounded-full text-gray-600 hover:text-gray-900"
             aria-label="Next month"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -252,7 +252,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
         {/* Day headers */}
         <div className="grid grid-cols-7 gap-1">
           {dayNames.map(day => (
-            <div key={day} className="p-1 text-center text-xs font-medium text-gray-500">
+            <div key={day} className="p-1 text-center text-xs font-medium text-gray-700">
               {day}
             </div>
           ))}
@@ -270,7 +270,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
               className={`
                 p-1 text-xs rounded transition-colors h-8 flex items-center justify-center
                 ${!day.isCurrentMonth 
-                  ? 'text-gray-300 cursor-not-allowed' 
+                  ? 'text-gray-400 cursor-not-allowed bg-transparent' 
                   : getDateClass(day.status)
                 }
               `}
@@ -288,7 +288,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({
 
         {/* Legend */}
         <div className="mt-3 pt-3 border-t border-gray-200">
-          <div className="grid grid-cols-2 gap-1 text-xs">
+          <div className="grid grid-cols-2 gap-1 text-xs text-gray-700">
             <div className="flex items-center">
               <div className="w-2 h-2 bg-green-500 rounded mr-1"></div>
               <span>Terpilih</span>

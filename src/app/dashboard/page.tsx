@@ -36,20 +36,6 @@ export default function DashboardPage() {
   const [bookings, setBookings] = useState<BookingData[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Redirect vendor to vendor dashboard
-  useEffect(() => {
-    if (!authLoading && isAuthenticated && profile) {
-      if (profile.preferred_role === 'vendor') {
-        router.replace('/vendor/dashboard')
-        return
-      }
-      // Only load bookings if user is client
-      if (profile.preferred_role === 'client' || profile.is_client) {
-        loadBookings()
-      }
-    }
-  }, [isAuthenticated, profile, authLoading, router])
-
   const loadBookings = useCallback(async () => {
     if (!user?.id) return
 
@@ -77,6 +63,20 @@ export default function DashboardPage() {
       setLoading(false)
     }
   }, [user])
+
+  // Redirect vendor to vendor dashboard
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && profile) {
+      if (profile.preferred_role === 'vendor') {
+        router.replace('/vendor/dashboard')
+        return
+      }
+      // Only load bookings if user is client
+      if (profile.preferred_role === 'client' || profile.is_client) {
+        loadBookings()
+      }
+    }
+  }, [isAuthenticated, profile, authLoading, router, loadBookings])
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {

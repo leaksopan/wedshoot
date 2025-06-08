@@ -244,22 +244,55 @@ export default function EditServicePage() {
     const fileName = generateUniqueFileName(file.name)
     const filePath = `services/${fileName}`
 
-    const { error: uploadError } = await supabase.storage
-      .from('images')
-      .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: false
-      })
+    console.log('🔵 Starting upload:', {
+      fileName,
+      filePath,
+      fileType: file.type,
+      fileSize: file.size,
+      fileConstructor: file.constructor.name
+    })
 
-    if (uploadError) {
-      throw new Error(`Upload failed: ${uploadError.message}`)
+    // Check user session
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      throw new Error('User not authenticated')
     }
 
-    const { data: urlData } = supabase.storage
-      .from('images')
-      .getPublicUrl(filePath)
+    try {
+      // Convert File to ArrayBuffer untuk memastikan binary data
+      const arrayBuffer = await file.arrayBuffer()
+      console.log('🔵 ArrayBuffer created:', {
+        byteLength: arrayBuffer.byteLength,
+        expectedSize: file.size
+      })
 
-    return urlData.publicUrl
+      // Upload menggunakan ArrayBuffer
+      const { error: uploadError, data } = await supabase.storage
+        .from('images')
+        .upload(filePath, arrayBuffer, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type || 'image/png'
+        })
+
+      if (uploadError) {
+        console.error('🔴 Upload error:', uploadError)
+        throw new Error(`Upload failed: ${uploadError.message}`)
+      }
+
+      console.log('🟢 Upload successful:', data)
+
+      const { data: urlData } = supabase.storage
+        .from('images')
+        .getPublicUrl(filePath)
+
+      console.log('🔵 Public URL generated:', urlData.publicUrl)
+      return urlData.publicUrl
+
+    } catch (error) {
+      console.error('🔴 Upload process error:', error)
+      throw error
+    }
   }
 
   const handleFileSelect = async (files: FileList) => {
@@ -267,8 +300,16 @@ export default function EditServicePage() {
     
     // Validate files
     const validFiles = fileArray.filter(file => {
-      if (!file.type.startsWith('image/')) {
-        alert(`${file.name} bukan file gambar yang valid`)
+      console.log('File:', file.name, 'Type:', file.type, 'Size:', file.size)
+      
+      // Check file extension if MIME type is missing
+      const fileExtension = file.name.toLowerCase().split('.').pop()
+      const validExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+      
+      const isValidType = file.type.startsWith('image/') || validExtensions.includes(fileExtension || '')
+      
+      if (!isValidType) {
+        alert(`${file.name} bukan file gambar yang valid. Gunakan format: JPG, PNG, WEBP, atau GIF`)
         return false
       }
       if (file.size > 5 * 1024 * 1024) { // 5MB limit

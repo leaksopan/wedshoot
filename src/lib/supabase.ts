@@ -15,23 +15,77 @@ if (process.env.NODE_ENV === 'development') {
   })
 }
 
+// Global connection manager untuk prevent multiple instances
+let connectionAttempts = 0
+const MAX_RECONNECTION_ATTEMPTS = 5
+const BASE_RECONNECT_DELAY = 1000
+
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
     flowType: 'pkce',
-    // Improved auth configuration
-    storageKey: 'wedshoot-auth-token',
-    storage: typeof window !== 'undefined' ? window.localStorage : undefined
+    // Dynamic storage key untuk avoid conflicts antar user sessions
+    storageKey: `wedshoot-auth-${typeof window !== 'undefined' ? window.location.hostname : 'default'}`,
+    storage: typeof window !== 'undefined' ? {
+      getItem: (key: string) => {
+        try {
+          const item = window.localStorage.getItem(key)
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🔑 Getting storage item: ${key}`, !!item)
+          }
+          return item
+        } catch (err) {
+          console.warn('⚠️ Error getting storage item:', key, err)
+          return null
+        }
+      },
+      setItem: (key: string, value: string) => {
+        try {
+          window.localStorage.setItem(key, value)
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`💾 Setting storage item: ${key}`)
+          }
+        } catch (err) {
+          console.warn('⚠️ Error setting storage item:', key, err)
+        }
+      },
+      removeItem: (key: string) => {
+        try {
+          window.localStorage.removeItem(key)
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🗑️ Removing storage item: ${key}`)
+          }
+        } catch (err) {
+          console.warn('⚠️ Error removing storage item:', key, err)
+        }
+      }
+    } : undefined
   },
   realtime: {
     params: {
-      eventsPerSecond: 10
+      eventsPerSecond: 20, // Increased from 10
+      timeout: 15000, // 15 seconds timeout
     },
-    // Improved realtime configuration
-    heartbeatIntervalMs: 30000,
-    reconnectAfterMs: (tries: number) => Math.min(tries * 1000, 30000)
+    // Improved realtime configuration dengan auto-reconnect
+    heartbeatIntervalMs: 20000, // Reduced from 30s to 20s
+    reconnectAfterMs: (attempts: number) => {
+      const delay = Math.min(attempts * BASE_RECONNECT_DELAY, 10000)
+      console.log(`🔄 Reconnecting after ${delay}ms (attempt ${attempts})`)
+      return delay
+    },
+    encode: (payload: Record<string, unknown>, callback: (encoded: string) => void) => {
+      callback(JSON.stringify(payload))
+    },
+    decode: (payload: string, callback: (decoded: Record<string, unknown> | null) => void) => {
+      try {
+        callback(JSON.parse(payload))
+      } catch (err) {
+        console.error('❌ Realtime decode error:', err)
+        callback(null)
+      }
+    }
   },
   global: {
     headers: {
@@ -45,6 +99,61 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     schema: 'public'
   }
 })
+
+// Connection monitoring untuk auto-reconnect
+let realtimeMonitor: NodeJS.Timeout | null = null
+let isReconnecting = false
+
+// Start realtime monitoring
+const startRealtimeMonitoring = () => {
+  if (realtimeMonitor || typeof window === 'undefined') return
+
+  realtimeMonitor = setInterval(() => {
+    if (isReconnecting) return
+
+    const isConnected = supabase.realtime?.isConnected()
+    
+    if (!isConnected && connectionAttempts < MAX_RECONNECTION_ATTEMPTS) {
+      console.log('🔄 Realtime disconnected, attempting to reconnect...')
+      attemptReconnection()
+    }
+  }, 10000) // Check every 10 seconds
+}
+
+// Auto-reconnection function
+const attemptReconnection = async () => {
+  if (isReconnecting || connectionAttempts >= MAX_RECONNECTION_ATTEMPTS) return
+
+  isReconnecting = true
+  connectionAttempts++
+
+  try {
+    console.log(`🔄 Reconnection attempt ${connectionAttempts}/${MAX_RECONNECTION_ATTEMPTS}`)
+    
+    // Disconnect existing connection
+    await supabase.realtime.disconnect()
+    
+    // Wait before reconnecting
+    await new Promise(resolve => setTimeout(resolve, BASE_RECONNECT_DELAY * connectionAttempts))
+    
+    // Reconnect
+    await supabase.realtime.connect()
+    
+    // Reset counter on successful connection
+    connectionAttempts = 0
+    console.log('✅ Realtime reconnected successfully')
+    
+  } catch (err) {
+    console.error(`❌ Reconnection attempt ${connectionAttempts} failed:`, err)
+  } finally {
+    isReconnecting = false
+  }
+}
+
+// Start monitoring when module loads
+if (typeof window !== 'undefined') {
+  startRealtimeMonitoring()
+}
 
 // Debug session di development mode
 export const debugSession = async () => {
@@ -66,7 +175,7 @@ export const debugSession = async () => {
   }
 }
 
-// Auto initialize auth listener
+// Auto initialize auth listener dengan error handling
 supabase.auth.onAuthStateChange((event, session) => {
   if (process.env.NODE_ENV === 'development') {
     console.log('🔄 Auth state change:', {
@@ -75,6 +184,11 @@ supabase.auth.onAuthStateChange((event, session) => {
       userId: session?.user?.id,
       email: session?.user?.email
     })
+  }
+  
+  // Reset connection attempts on auth change
+  if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+    connectionAttempts = 0
   }
 })
 
@@ -145,12 +259,19 @@ interface RealtimePayload {
   errors?: string[] | null
 }
 
-// Realtime helpers untuk chat dengan improved error handling
+// Enhanced realtime subscription dengan retry mechanism
 export const subscribeToMessages = (
   roomId: string, 
   onMessage: (payload: RealtimePayload) => void,
   onError?: (error: string) => void
 ) => {
+  // Validasi input
+  if (!roomId) {
+    console.error('❌ No roomId provided for message subscription')
+    onError?.('No room ID provided')
+    return null
+  }
+
   const channelName = `messages:${roomId}:${Date.now()}`
   
   console.log('📡 Setting up messages subscription for room:', roomId)
@@ -160,6 +281,11 @@ export const subscribeToMessages = (
       config: {
         presence: {
           key: `user_${roomId}`
+        },
+        // Enhanced broadcast configuration
+        broadcast: {
+          self: false,
+          ack: true
         }
       }
     })
@@ -193,13 +319,22 @@ export const subscribeToMessages = (
       console.log('📡 Messages subscription status:', status, err?.message)
       
       if (status === 'CHANNEL_ERROR') {
+        console.error('❌ Channel error:', err)
         onError?.(err?.toString() || status)
+        // Auto retry after delay
+        setTimeout(() => {
+          console.log('🔄 Retrying subscription for room:', roomId)
+          subscribeToMessages(roomId, onMessage, onError)
+        }, 5000)
       } else if (status === 'TIMED_OUT') {
+        console.error('⏰ Subscription timed out')
         onError?.('Connection timed out')
       } else if (status === 'CLOSED') {
+        console.warn('🔒 Subscription closed')
         onError?.('Connection closed')
       } else if (status === 'SUBSCRIBED') {
         console.log('✅ Messages subscription active for room:', roomId)
+        connectionAttempts = 0 // Reset on successful subscription
       }
     })
 
@@ -253,6 +388,7 @@ export const subscribeToChatRooms = (
       console.log('📡 Chat rooms subscription status:', status, err?.message)
       
       if (status === 'CHANNEL_ERROR') {
+        console.error('❌ Chat rooms channel error:', err)
         onError?.(err?.toString() || status)
       } else if (status === 'TIMED_OUT') {
         onError?.('Connection timed out')
@@ -271,6 +407,9 @@ export const unsubscribeAll = () => {
   const channels = supabase.getChannels()
   console.log('🧹 Unsubscribing from', channels.length, 'channels')
   supabase.removeAllChannels()
+  
+  // Reset connection counter
+  connectionAttempts = 0
 }
 
 // Debug realtime status dengan improved monitoring - hanya untuk development
@@ -280,6 +419,8 @@ export const debugRealtimeStatus = () => {
   const channels = supabase.getChannels()
   const status = {
     isConnected: supabase.realtime?.isConnected() || false,
+    connectionAttempts,
+    isReconnecting,
     channelCount: channels.length,
     channels: channels.map(ch => ({
       topic: ch.topic,
@@ -291,15 +432,13 @@ export const debugRealtimeStatus = () => {
   return status
 }
 
-// Connection retry utility
+// Enhanced connection retry utility
 export const retryRealtimeConnection = async (maxRetries = 3, delay = 2000) => {
-  if (process.env.NODE_ENV !== 'development') return false
-  
-  console.log('🔄 Retrying realtime connection...')
+  console.log('🔄 Manual realtime connection retry...')
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`🔄 Attempt ${attempt}/${maxRetries}`)
+      console.log(`🔄 Retry attempt ${attempt}/${maxRetries}`)
       
       // Disconnect dan reconnect
       await supabase.realtime.disconnect()
@@ -308,8 +447,10 @@ export const retryRealtimeConnection = async (maxRetries = 3, delay = 2000) => {
       
       // Test connection
       const status = debugRealtimeStatus()
+      
       if (status?.isConnected) {
-        console.log('✅ Realtime connection restored')
+        console.log('✅ Manual reconnection successful')
+        connectionAttempts = 0
         return true
       }
       
@@ -317,10 +458,8 @@ export const retryRealtimeConnection = async (maxRetries = 3, delay = 2000) => {
       console.error(`❌ Retry attempt ${attempt} failed:`, err)
     }
     
-    if (attempt < maxRetries) {
-      await new Promise(resolve => setTimeout(resolve, delay))
-      delay *= 1.5 // Exponential backoff
-    }
+    // Increase delay for next attempt
+    delay *= 1.5
   }
   
   console.error('❌ All retry attempts failed')
@@ -334,42 +473,59 @@ interface HealthCheckResult {
   auth: boolean
   channels: number
   errors: string[]
+  realtime: {
+    isConnected: boolean
+    connectionAttempts: number
+    isReconnecting: boolean
+  }
 }
 
-// Health check utility
 export const performRealtimeHealthCheck = async (): Promise<HealthCheckResult | null> => {
   if (process.env.NODE_ENV !== 'development') return null
   
-  console.log('🏥 Performing health check...')
+  console.log('🏥 Performing realtime health check...')
   
-  const results: HealthCheckResult = {
+  const result: HealthCheckResult = {
     timestamp: new Date().toISOString(),
     connection: false,
     database: false,
     auth: false,
     channels: 0,
-    errors: []
+    errors: [],
+    realtime: {
+      isConnected: supabase.realtime?.isConnected() || false,
+      connectionAttempts,
+      isReconnecting
+    }
   }
   
   try {
-    // Test database connection
-    results.database = await checkSupabaseConnection()
+    // Test basic connection
+    result.connection = await checkSupabaseConnection()
     
     // Test auth
-    results.auth = await testSupabaseAuth()
+    result.auth = await testSupabaseAuth()
     
-    // Test realtime connection
-    const realtimeStatus = debugRealtimeStatus()
-    results.connection = realtimeStatus?.isConnected || false
-    results.channels = realtimeStatus?.channelCount || 0
+    // Test database query
+    const { error: dbError } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .limit(1)
     
-    console.log('🏥 Health check results:', results)
-    return results
+    result.database = !dbError
+    if (dbError) {
+      result.errors.push(`Database: ${dbError.message}`)
+    }
+    
+    // Count channels
+    result.channels = supabase.getChannels().length
+    
   } catch (err) {
-    console.error('❌ Health check failed:', err)
-    results.errors.push('Health check failed')
-    return results
+    result.errors.push(`Health check error: ${err}`)
   }
+  
+  console.log('🏥 Health check results:', result)
+  return result
 }
 
 export default supabase 
